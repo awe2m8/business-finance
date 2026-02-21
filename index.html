@@ -21,6 +21,16 @@
               Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
               (optional: <code>account</code>, <code>category</code>).
             </p>
+            <label class="import-month">
+              Statement Month
+              <input id="importMonthInput" type="month" />
+            </label>
+            <input id="fileInput" type="file" accept=".csv" />
+            <div class="button-row">
+              <button id="importBtn">Import CSV</button>
+              <button id="downloadTemplateBtn">Download Template</button>
+              <button id="clearBtn" class="danger">Clear All Data</button>
+            </div>
           </div>
           <div class="api-sync">
             <label>
@@ -32,16 +42,6 @@
               <button id="pullBtn">Pull From API</button>
             </div>
           </div>
-        </div>
-        <label class="import-month">
-          Statement Month
-          <input id="importMonthInput" type="month" />
-        </label>
-        <input id="fileInput" type="file" accept=".csv" />
-        <div class="button-row">
-          <button id="importBtn">Import CSV</button>
-          <button id="downloadTemplateBtn">Download Template</button>
-          <button id="clearBtn" class="danger">Clear All Data</button>
         </div>
       </section>
 
