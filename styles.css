@@ -64,6 +64,10 @@ body {
   grid-column: 1 / -1;
 }
 
+.recurring-panel {
+  grid-column: 1 / -1;
+}
+
 .table-wrap {
   grid-column: 1 / -1;
 }
