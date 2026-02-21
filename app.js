@@ -717,7 +717,7 @@ function compareTransactionOrder(a, b) {
   const dateB = parseDateToISO(b.date) || "";
 
   if (dateA !== dateB) {
-    return dateA.localeCompare(dateB);
+    return dateB.localeCompare(dateA);
   }
 
   const ordinalA = Number(a.sortOrdinal);
