@@ -14,11 +14,25 @@
 
     <main class="layout">
       <section class="card controls">
-        <h2>Statement Import</h2>
-        <p class="hint">
-          Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
-          (optional: <code>account</code>, <code>category</code>).
-        </p>
+        <div class="controls-top">
+          <div class="controls-title">
+            <h2>Statement Import</h2>
+            <p class="hint">
+              Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
+              (optional: <code>account</code>, <code>category</code>).
+            </p>
+          </div>
+          <div class="api-sync">
+            <label>
+              API URL (Render)
+              <input id="apiUrlInput" type="url" placeholder="https://your-render-api.onrender.com" />
+            </label>
+            <div class="button-row">
+              <button id="syncBtn">Sync To API</button>
+              <button id="pullBtn">Pull From API</button>
+            </div>
+          </div>
+        </div>
         <label class="import-month">
           Statement Month
           <input id="importMonthInput" type="month" />
@@ -28,16 +42,6 @@
           <button id="importBtn">Import CSV</button>
           <button id="downloadTemplateBtn">Download Template</button>
           <button id="clearBtn" class="danger">Clear All Data</button>
-        </div>
-        <div class="api-sync">
-          <label>
-            API URL (Render)
-            <input id="apiUrlInput" type="url" placeholder="https://your-render-api.onrender.com" />
-          </label>
-          <div class="button-row">
-            <button id="syncBtn">Sync To API</button>
-            <button id="pullBtn">Pull From API</button>
-          </div>
         </div>
       </section>
 

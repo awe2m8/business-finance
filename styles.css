@@ -55,6 +55,18 @@ body {
   font-size: 1.05rem;
 }
 
+.controls-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.controls-title {
+  flex: 1 1 auto;
+  min-width: 280px;
+}
+
 .controls,
 .metrics {
   grid-column: 1 / -1;
@@ -96,14 +108,26 @@ body {
 }
 
 .api-sync {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
+  margin-top: 0;
+  min-width: 320px;
+  max-width: 520px;
 }
 
 .api-sync label {
   display: grid;
   gap: 4px;
+}
+
+.api-sync input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+  background: #fff;
+  width: 100%;
+}
+
+.api-sync .button-row {
+  margin-top: 8px;
 }
 
 button,
@@ -313,5 +337,15 @@ td select {
 @media (max-width: 720px) {
   .layout {
     padding: 10px;
+  }
+
+  .controls-top {
+    flex-direction: column;
+  }
+
+  .controls-title,
+  .api-sync {
+    min-width: 0;
+    width: 100%;
   }
 }
