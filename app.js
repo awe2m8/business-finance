@@ -88,6 +88,7 @@ const els = {
   partnerCreditTotal: document.getElementById("partnerCreditTotal"),
   vendorConcentrationPercent: document.getElementById("vendorConcentrationPercent"),
   vendorTopList: document.getElementById("vendorTopList"),
+  vendorExpenseBaseTotal: document.getElementById("vendorExpenseBaseTotal"),
   vendorTopTotal: document.getElementById("vendorTopTotal")
 };
 
@@ -638,6 +639,7 @@ function renderVendorConcentration(transactions) {
   const concentrationPct = totalExpense ? Math.round((topTotal / totalExpense) * 100) : 0;
 
   els.vendorConcentrationPercent.textContent = `${concentrationPct}%`;
+  els.vendorExpenseBaseTotal.textContent = formatCurrency(totalExpense);
   els.vendorTopTotal.textContent = formatCurrency(topTotal);
 
   if (!topVendors.length) {
@@ -653,7 +655,7 @@ function renderVendorConcentration(transactions) {
           <div class="vendor-row">
             <div class="vendor-row-top">
               <span>${escapeHtml(toTitleCase(item.vendor))}</span>
-              <span>${formatCurrency(item.amount)} (${Math.round(share)}%)</span>
+              <span>Total: ${formatCurrency(item.amount)} (${Math.round(share)}%)</span>
             </div>
             <div class="vendor-bar"><span style="width:${Math.max(2, Math.round(share))}%"></span></div>
           </div>
