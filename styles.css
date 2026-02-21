@@ -55,6 +55,34 @@ body {
   font-size: 1.05rem;
 }
 
+.card-collapse-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-collapse-head h2 {
+  margin: 0;
+}
+
+.panel-toggle-btn.collapsed #controlsToggleIcon {
+  transform: rotate(-90deg);
+}
+
+#controlsToggleIcon {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.collapsible-content {
+  margin-top: 10px;
+}
+
+.collapsible-content.is-collapsed {
+  display: none;
+}
+
 .controls-top {
   display: flex;
   align-items: flex-start;
@@ -153,6 +181,27 @@ button.danger {
   background: #fff;
   color: var(--danger);
   border-color: var(--danger);
+}
+
+button.panel-toggle-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+button.panel-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #fff;
 }
 
 .metric-grid {

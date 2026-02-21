@@ -14,32 +14,46 @@
 
     <main class="layout">
       <section class="card controls">
-        <div class="controls-top">
-          <div class="controls-title">
-            <h2>Statement Import</h2>
-            <p class="hint">
-              Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
-              (optional: <code>account</code>, <code>category</code>).
-            </p>
-            <label class="import-month">
-              Statement Month
-              <input id="importMonthInput" type="month" />
-            </label>
-            <input id="fileInput" type="file" accept=".csv" />
-            <div class="button-row">
-              <button id="importBtn">Import CSV</button>
-              <button id="downloadTemplateBtn">Download Template</button>
-              <button id="clearBtn" class="danger">Clear All Data</button>
+        <div class="card-collapse-head">
+          <h2>Statement Import</h2>
+          <button
+            id="controlsToggleBtn"
+            class="panel-toggle-btn"
+            type="button"
+            aria-expanded="true"
+            aria-controls="controlsContent"
+          >
+            <span id="controlsToggleIcon">▾</span>
+          </button>
+        </div>
+
+        <div id="controlsContent" class="collapsible-content">
+          <div class="controls-top">
+            <div class="controls-title">
+              <p class="hint">
+                Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
+                (optional: <code>account</code>, <code>category</code>).
+              </p>
+              <label class="import-month">
+                Statement Month
+                <input id="importMonthInput" type="month" />
+              </label>
+              <input id="fileInput" type="file" accept=".csv" />
+              <div class="button-row">
+                <button id="importBtn">Import CSV</button>
+                <button id="downloadTemplateBtn">Download Template</button>
+                <button id="clearBtn" class="danger">Clear All Data</button>
+              </div>
             </div>
-          </div>
-          <div class="api-sync">
-            <label>
-              API URL (Render)
-              <input id="apiUrlInput" type="url" placeholder="https://your-render-api.onrender.com" />
-            </label>
-            <div class="button-row">
-              <button id="syncBtn">Sync To API</button>
-              <button id="pullBtn">Pull From API</button>
+            <div class="api-sync">
+              <label>
+                API URL (Render)
+                <input id="apiUrlInput" type="url" placeholder="https://your-render-api.onrender.com" />
+              </label>
+              <div class="button-row">
+                <button id="syncBtn">Sync To API</button>
+                <button id="pullBtn">Pull From API</button>
+              </div>
             </div>
           </div>
         </div>

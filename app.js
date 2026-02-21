@@ -1,6 +1,7 @@
 const STORAGE_KEY = "finance_os_transactions_v1";
 const API_URL_KEY = "finance_os_api_url_v1";
 const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
+const CONTROLS_OPEN_KEY = "finance_os_controls_open_v1";
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -61,6 +62,9 @@ const state = {
 
 const els = {
   fileInput: document.getElementById("fileInput"),
+  controlsToggleBtn: document.getElementById("controlsToggleBtn"),
+  controlsContent: document.getElementById("controlsContent"),
+  controlsToggleIcon: document.getElementById("controlsToggleIcon"),
   importMonthInput: document.getElementById("importMonthInput"),
   importBtn: document.getElementById("importBtn"),
   clearBtn: document.getElementById("clearBtn"),
@@ -103,6 +107,7 @@ const els = {
 function init() {
   state.transactions = normalizeStoredTransactions(loadTransactions()).sort(compareTransactionOrder);
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
+  initControlsPanel();
   els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
   refreshDerivedData();
@@ -111,6 +116,9 @@ function init() {
 }
 
 function bindEvents() {
+  if (els.controlsToggleBtn) {
+    els.controlsToggleBtn.addEventListener("click", toggleControlsPanel);
+  }
   els.importBtn.addEventListener("click", handleImportClick);
   els.clearBtn.addEventListener("click", handleClear);
   els.downloadTemplateBtn.addEventListener("click", downloadTemplate);
@@ -121,6 +129,33 @@ function bindEvents() {
   els.reviewFilter.addEventListener("change", render);
   els.dateFromInput.addEventListener("change", render);
   els.dateToInput.addEventListener("change", render);
+}
+
+function initControlsPanel() {
+  const raw = localStorage.getItem(CONTROLS_OPEN_KEY);
+  const isOpen = raw === null ? true : raw === "1";
+  setControlsPanelOpen(isOpen);
+}
+
+function toggleControlsPanel() {
+  if (!els.controlsContent) {
+    return;
+  }
+  const isOpen = !els.controlsContent.classList.contains("is-collapsed");
+  setControlsPanelOpen(!isOpen);
+}
+
+function setControlsPanelOpen(isOpen) {
+  if (!els.controlsContent || !els.controlsToggleBtn || !els.controlsToggleIcon) {
+    return;
+  }
+
+  els.controlsContent.classList.toggle("is-collapsed", !isOpen);
+  els.controlsToggleBtn.classList.toggle("collapsed", !isOpen);
+  els.controlsToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  els.controlsToggleBtn.setAttribute("title", isOpen ? "Collapse statement import" : "Expand statement import");
+  els.controlsToggleIcon.textContent = isOpen ? "▾" : "▸";
+  localStorage.setItem(CONTROLS_OPEN_KEY, isOpen ? "1" : "0");
 }
 
 function handleImportClick() {
