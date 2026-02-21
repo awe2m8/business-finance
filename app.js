@@ -6,6 +6,8 @@ const CATEGORY_OPTIONS = [
   "Uncategorized",
   "Credit",
   "Giles Credit",
+  "Misc Credit",
+  "Debit",
   "Assistable",
   "Oracall AI",
   "Go High Level",
@@ -15,16 +17,21 @@ const CATEGORY_OPTIONS = [
   "ElevenLabs",
   "Claude",
   "OpenAI",
-  "Foreign Currency"
+  "Foreign Currency",
+  "Google",
+  "Misc Debit"
 ];
-const CREDIT_CATEGORIES = new Set(["Credit", "Giles Credit"]);
+const CREDIT_CATEGORIES = new Set(["Credit", "Giles Credit", "Misc Credit"]);
 const CATEGORY_ALIASES = {
   "credit giles": "Giles Credit",
-  "giles credit": "Giles Credit"
+  "giles credit": "Giles Credit",
+  misc: "Misc Debit",
+  miscellaneous: "Misc Debit"
 };
 
 const CATEGORY_RULES = [
   { keyword: "giles", category: "Giles Credit" },
+  { keyword: "google", category: "Google" },
   { keyword: "assistable", category: "Assistable" },
   { keyword: "oracall", category: "Oracall AI" },
   { keyword: "go high level", category: "Go High Level" },
@@ -623,38 +630,38 @@ function renderPartnerSplitOverview(transactions) {
 function renderVendorConcentration(transactions) {
   const expenseTransactions = transactions.filter((t) => (Number(t.amount) || 0) > 0);
   const totalExpense = expenseTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const vendorTotals = new Map();
+  const categoryTotals = new Map();
 
   expenseTransactions.forEach((tx) => {
-    const vendorKey = canonicalMerchant(tx.description) || "uncategorized vendor";
-    vendorTotals.set(vendorKey, (vendorTotals.get(vendorKey) || 0) + Number(tx.amount || 0));
+    const categoryKey = normalizeCategory(tx.category || "Uncategorized");
+    categoryTotals.set(categoryKey, (categoryTotals.get(categoryKey) || 0) + Number(tx.amount || 0));
   });
 
-  const topVendors = Array.from(vendorTotals.entries())
-    .map(([vendor, amount]) => ({ vendor, amount }))
+  const topCategories = Array.from(categoryTotals.entries())
+    .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
-  const topTotal = topVendors.reduce((sum, item) => sum + item.amount, 0);
+  const topTotal = topCategories.reduce((sum, item) => sum + item.amount, 0);
   const concentrationPct = totalExpense ? Math.round((topTotal / totalExpense) * 100) : 0;
 
   els.vendorConcentrationPercent.textContent = `${concentrationPct}%`;
   els.vendorExpenseBaseTotal.textContent = formatCurrency(totalExpense);
   els.vendorTopTotal.textContent = formatCurrency(topTotal);
 
-  if (!topVendors.length) {
-    els.vendorTopList.innerHTML = "<li>No vendor spend in current scope.</li>";
+  if (!topCategories.length) {
+    els.vendorTopList.innerHTML = "<li>No categorized spend in current scope.</li>";
     return;
   }
 
-  els.vendorTopList.innerHTML = topVendors
+  els.vendorTopList.innerHTML = topCategories
     .map((item) => {
       const share = totalExpense ? (item.amount / totalExpense) * 100 : 0;
       return `
         <li>
           <div class="vendor-row">
             <div class="vendor-row-top">
-              <span>${escapeHtml(toTitleCase(item.vendor))}</span>
+              <span>${escapeHtml(item.category)}</span>
               <span>Total: ${formatCurrency(item.amount)} (${Math.round(share)}%)</span>
             </div>
             <div class="vendor-bar"><span style="width:${Math.max(2, Math.round(share))}%"></span></div>
@@ -663,14 +670,6 @@ function renderVendorConcentration(transactions) {
       `;
     })
     .join("");
-}
-
-function toTitleCase(value) {
-  return String(value || "")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function renderMetrics() {
