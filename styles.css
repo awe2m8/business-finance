@@ -139,6 +139,18 @@ body {
   max-width: 220px;
 }
 
+.import-month-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.import-month-row .import-month {
+  margin: 0;
+}
+
 .api-sync {
   margin-top: 0;
   min-width: 320px;
@@ -181,6 +193,18 @@ button.danger {
   background: #fff;
   color: var(--danger);
   border-color: var(--danger);
+}
+
+button.secondary {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+button.secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #fff;
 }
 
 button.panel-toggle-btn {

@@ -66,6 +66,7 @@ const els = {
   controlsContent: document.getElementById("controlsContent"),
   controlsToggleIcon: document.getElementById("controlsToggleIcon"),
   importMonthInput: document.getElementById("importMonthInput"),
+  importMiscBtn: document.getElementById("importMiscBtn"),
   importBtn: document.getElementById("importBtn"),
   clearBtn: document.getElementById("clearBtn"),
   downloadTemplateBtn: document.getElementById("downloadTemplateBtn"),
@@ -120,6 +121,9 @@ function bindEvents() {
     els.controlsToggleBtn.addEventListener("click", toggleControlsPanel);
   }
   els.importBtn.addEventListener("click", handleImportClick);
+  if (els.importMiscBtn) {
+    els.importMiscBtn.addEventListener("click", handleMiscImportClick);
+  }
   els.clearBtn.addEventListener("click", handleClear);
   els.downloadTemplateBtn.addEventListener("click", downloadTemplate);
   els.syncBtn.addEventListener("click", syncToApi);
@@ -159,14 +163,31 @@ function setControlsPanelOpen(isOpen) {
 }
 
 function handleImportClick() {
-  const file = els.fileInput.files[0];
   const selectedImportMonth = normalizeMonthKey(els.importMonthInput.value);
-  if (!file) {
-    alert("Pick a CSV file first.");
-    return;
-  }
   if (!selectedImportMonth) {
     alert("Pick a statement month before importing.");
+    return;
+  }
+
+  importFromSelectedFile({
+    importMonthKey: selectedImportMonth,
+    idScopeKey: selectedImportMonth,
+    selectImportedMonth: true
+  });
+}
+
+function handleMiscImportClick() {
+  importFromSelectedFile({
+    importMonthKey: null,
+    idScopeKey: "misc",
+    selectImportedMonth: false
+  });
+}
+
+function importFromSelectedFile({ importMonthKey = null, idScopeKey = null, selectImportedMonth = false } = {}) {
+  const file = els.fileInput.files[0];
+  if (!file) {
+    alert("Pick a CSV file first.");
     return;
   }
 
@@ -175,7 +196,7 @@ function handleImportClick() {
     const text = String(e.target.result || "");
     let nextSortOrdinal = getNextSortOrdinal();
     const imported = parseCSV(text)
-      .map((row, index) => normalizeTransaction(row, selectedImportMonth, nextSortOrdinal++, index + 1))
+      .map((row, index) => normalizeTransaction(row, importMonthKey, nextSortOrdinal++, index + 1, idScopeKey))
       .filter(Boolean);
 
     if (!imported.length) {
@@ -184,8 +205,10 @@ function handleImportClick() {
     }
 
     upsertTransactions(imported);
-    state.selectedMonthKey = selectedImportMonth;
-    persistSelectedMonth();
+    if (selectImportedMonth && importMonthKey) {
+      state.selectedMonthKey = importMonthKey;
+      persistSelectedMonth();
+    }
     refreshDerivedData();
     persist();
     render();
@@ -245,7 +268,7 @@ function splitCSVLine(line) {
   return out;
 }
 
-function normalizeTransaction(row, importMonthKey = null, sortOrdinal = null, rowIndex = null) {
+function normalizeTransaction(row, importMonthKey = null, sortOrdinal = null, rowIndex = null, idScopeKey = null) {
   const dateValue = row.date || row.posted || row.transaction_date;
   const description = row.description || row.memo || row.vendor || "";
   const debitValue = row.debit || row.withdrawal || row.charge || "";
@@ -286,9 +309,11 @@ function normalizeTransaction(row, importMonthKey = null, sortOrdinal = null, ro
 
   const normalizedMonthKey = normalizeMonthKey(importMonthKey || row.statement_month_key || row.statement_month || "");
   const importRowKey = Number.isFinite(Number(rowIndex)) ? Number(rowIndex) : null;
+  const normalizedScopeKey = String(idScopeKey || "").trim();
+  const suffixScope = normalizedMonthKey || normalizedScopeKey;
 
   return {
-    id: buildTransactionId(txDate, description, amount, normalizedMonthKey && importRowKey ? `${normalizedMonthKey}:${importRowKey}` : ""),
+    id: buildTransactionId(txDate, description, amount, suffixScope && importRowKey ? `${suffixScope}:${importRowKey}` : ""),
     date: txDate,
     description: description.trim(),
     amount,
@@ -766,7 +791,7 @@ function renderMonthPanel() {
     btn.innerHTML = `
       <span class="month-badge-top">
         <span class="month-name">${escapeHtml(summary.label)}</span>
-        <span class="month-delete-btn" data-month-delete="${summary.key}" role="button" aria-label="Delete ${escapeHtml(summary.label)}">×</span>
+        <span class="month-delete-btn" data-month-delete="${summary.key}" role="button" aria-label="Remove ${escapeHtml(summary.label)} badge">×</span>
       </span>
       <span class="month-meta">${summary.count} tx</span>
     `;
@@ -804,12 +829,19 @@ function deleteMonthBatch(summary) {
   const monthKey = summary.key;
   const label = summary.label;
   const count = summary.count;
-  const ok = confirm(`Delete ${count} transaction(s) for ${label}? This cannot be undone.`);
+  const ok = confirm(
+    `Remove ${label} as a month label for ${count} transaction(s)? Transactions will stay in All Months.`
+  );
   if (!ok) {
     return;
   }
 
-  state.transactions = state.transactions.filter((tx) => normalizeMonthKey(tx.statementMonthKey) !== monthKey);
+  state.transactions = state.transactions.map((tx) => {
+    if (normalizeMonthKey(tx.statementMonthKey) !== monthKey) {
+      return tx;
+    }
+    return { ...tx, statementMonthKey: null };
+  });
   if (state.selectedMonthKey === monthKey) {
     state.selectedMonthKey = null;
     persistSelectedMonth();

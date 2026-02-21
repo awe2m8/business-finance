@@ -34,10 +34,13 @@
                 Upload CSV with columns: <code>date</code>, <code>description</code>, <code>amount</code>
                 (optional: <code>account</code>, <code>category</code>).
               </p>
-              <label class="import-month">
-                Statement Month
-                <input id="importMonthInput" type="month" />
-              </label>
+              <div class="import-month-row">
+                <label class="import-month">
+                  Statement Month
+                  <input id="importMonthInput" type="month" />
+                </label>
+                <button id="importMiscBtn" class="secondary" type="button">Misc Upload</button>
+              </div>
               <input id="fileInput" type="file" accept=".csv" />
               <div class="button-row">
                 <button id="importBtn">Import CSV</button>
@@ -71,7 +74,10 @@
 
       <section class="card month-panel">
         <h2>Monthly Imports</h2>
-        <p class="hint">Each badge is a labeled CSV import month. Click to review that month only.</p>
+        <p class="hint">
+          Each badge is a labeled CSV import month. Click to review that month only.
+          Use <code>x</code> to remove the month label while keeping transactions under All Months.
+        </p>
         <div id="monthBadgeRow" class="month-badges"></div>
         <div class="month-summary">
           <article><span id="monthSelectedLabel">All Months</span><small>Selected Month</small></article>
