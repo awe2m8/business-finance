@@ -10,6 +10,7 @@ MVP stack now aligned to:
 
 ## Current App (frontend)
 - CSV import for transactions
+- Statement month labeling on import (`YYYY-MM`) with month badges
 - Auto-category tagging (keyword rules)
 - Partner split percentage editing per transaction
 - Needs-review status queue

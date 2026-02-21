@@ -32,6 +32,7 @@ const state = {
 
 const els = {
   fileInput: document.getElementById("fileInput"),
+  importMonthInput: document.getElementById("importMonthInput"),
   importBtn: document.getElementById("importBtn"),
   clearBtn: document.getElementById("clearBtn"),
   downloadTemplateBtn: document.getElementById("downloadTemplateBtn"),
@@ -58,6 +59,7 @@ const els = {
 function init() {
   state.transactions = loadTransactions().sort(compareTransactionOrder);
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
+  els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
   refreshDerivedData();
   bindEvents();
@@ -79,15 +81,22 @@ function bindEvents() {
 
 function handleImportClick() {
   const file = els.fileInput.files[0];
+  const selectedImportMonth = normalizeMonthKey(els.importMonthInput.value);
   if (!file) {
     alert("Pick a CSV file first.");
+    return;
+  }
+  if (!selectedImportMonth) {
+    alert("Pick a statement month before importing.");
     return;
   }
 
   const reader = new FileReader();
   reader.onload = (e) => {
     const text = String(e.target.result || "");
-    const imported = parseCSV(text).map(normalizeTransaction).filter(Boolean);
+    const imported = parseCSV(text)
+      .map((row) => normalizeTransaction(row, selectedImportMonth))
+      .filter(Boolean);
 
     if (!imported.length) {
       alert("No valid rows found.");
@@ -95,14 +104,8 @@ function handleImportClick() {
     }
 
     upsertTransactions(imported);
-    const importedMonthKeys = imported
-      .map((tx) => getMonthKeyFromDate(tx.date))
-      .filter(Boolean)
-      .sort();
-    if (importedMonthKeys.length) {
-      state.selectedMonthKey = importedMonthKeys[importedMonthKeys.length - 1];
-      persistSelectedMonth();
-    }
+    state.selectedMonthKey = selectedImportMonth;
+    persistSelectedMonth();
     refreshDerivedData();
     persist();
     render();
@@ -162,7 +165,7 @@ function splitCSVLine(line) {
   return out;
 }
 
-function normalizeTransaction(row) {
+function normalizeTransaction(row, importMonthKey = null) {
   const dateValue = row.date || row.posted || row.transaction_date;
   const description = row.description || row.memo || row.vendor || "";
   const debitValue = row.debit || row.withdrawal || row.charge || "";
@@ -208,6 +211,7 @@ function normalizeTransaction(row) {
     amount,
     category,
     partnerSplitPct: clamp(splitPct, 0, 100),
+    statementMonthKey: normalizeMonthKey(importMonthKey || row.statement_month_key || row.statement_month || ""),
     status: confidence >= 0.8 ? "clean" : "needs-review"
   };
 }
@@ -308,6 +312,29 @@ function toISODate(year, month, day) {
   const m = String(month).padStart(2, "0");
   const d = String(day).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function normalizeMonthKey(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return `${String(year)}-${String(month).padStart(2, "0")}`;
+}
+
+function getCurrentMonthKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 }
 
 function upsertTransactions(items) {
@@ -439,12 +466,17 @@ function renderMonthPanel() {
 
   els.monthBadgeRow.innerHTML = "";
 
-  const allSummary = summaries.reduce(
-    (acc, item) => ({
-      count: acc.count + item.count,
-      expenses: acc.expenses + item.expenses,
-      credits: acc.credits + item.credits
-    }),
+  const allSummary = state.transactions.reduce(
+    (acc, tx) => {
+      const amount = Number(tx.amount) || 0;
+      acc.count += 1;
+      if (amount < 0) {
+        acc.credits += Math.abs(amount);
+      } else {
+        acc.expenses += amount;
+      }
+      return acc;
+    },
     { count: 0, expenses: 0, credits: 0 }
   );
 
@@ -488,7 +520,7 @@ function buildMonthSummaries(transactions) {
   const monthMap = new Map();
 
   transactions.forEach((t) => {
-    const key = getMonthKeyFromDate(t.date);
+    const key = normalizeMonthKey(t.statementMonthKey);
     if (!key) {
       return;
     }
@@ -515,11 +547,6 @@ function buildMonthSummaries(transactions) {
   });
 
   return Array.from(monthMap.values()).sort((a, b) => b.key.localeCompare(a.key));
-}
-
-function getMonthKeyFromDate(value) {
-  const iso = parseDateToISO(value);
-  return iso ? iso.slice(0, 7) : null;
 }
 
 function formatMonthKeyLabel(monthKey) {
@@ -549,7 +576,7 @@ function renderTransactions() {
     const txDate = parseDateToISO(t.date);
     const matchesDateFrom = !dateFrom || (txDate && txDate >= dateFrom);
     const matchesDateTo = !dateTo || (txDate && txDate <= dateTo);
-    const matchesMonth = !selectedMonthKey || getMonthKeyFromDate(t.date) === selectedMonthKey;
+    const matchesMonth = !selectedMonthKey || normalizeMonthKey(t.statementMonthKey) === selectedMonthKey;
 
     return matchesText && matchesReview && matchesDateFrom && matchesDateTo && matchesMonth;
   });
@@ -699,6 +726,7 @@ async function syncToApi() {
         amount_cents: Math.round(t.amount * 100),
         category: t.category,
         partner_split_pct: t.partnerSplitPct,
+        statement_month_key: normalizeMonthKey(t.statementMonthKey),
         source: "ui-import"
       }))
     };
@@ -744,6 +772,7 @@ async function pullFromApi() {
       amount: Number(row.amount_cents) / 100,
       category: String(row.category || "Uncategorized"),
       partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
+      statementMonthKey: normalizeMonthKey(row.statement_month_key),
       status: row.category && row.category !== "Uncategorized" ? "clean" : "needs-review"
     }));
 

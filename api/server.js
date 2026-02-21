@@ -38,7 +38,7 @@ app.get("/transactions", async (_req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `select id, tx_date, description, amount_cents, category, partner_split_pct, source, created_at
+      `select id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at
        from transactions
        order by tx_date desc, created_at desc
        limit 1000`
@@ -71,6 +71,7 @@ app.post("/transactions/bulk", async (req, res) => {
       const amount = Number(item.amount_cents ?? Math.round(Number(item.amount || 0) * 100));
       const category = String(item.category || "Uncategorized");
       const partnerSplitPct = Number(item.partner_split_pct ?? 50);
+      const statementMonthKey = normalizeMonthKey(item.statement_month_key);
       const source = String(item.source || "manual");
 
       if (!txDate || !description || Number.isNaN(amount)) {
@@ -78,13 +79,14 @@ app.post("/transactions/bulk", async (req, res) => {
       }
 
       await client.query(
-        `insert into transactions (tx_date, description, amount_cents, category, partner_split_pct, source)
-         values ($1, $2, $3, $4, $5, $6)
+        `insert into transactions (tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
+         values ($1, $2, $3, $4, $5, $6, $7)
          on conflict (tx_date, description, amount_cents) do update
            set category = excluded.category,
                partner_split_pct = excluded.partner_split_pct,
+               statement_month_key = excluded.statement_month_key,
                source = excluded.source`,
-        [txDate, description, amount, category, partnerSplitPct, source]
+        [txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
       );
 
       inserted += 1;
@@ -138,6 +140,22 @@ function normalizeTxDate(value) {
   return `${y}-${m}-${d}`;
 }
 
+function normalizeMonthKey(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return `${String(year)}-${String(month).padStart(2, "0")}`;
+}
+
 function toIsoDate(year, month, day) {
   if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
     return null;
@@ -160,7 +178,26 @@ function toIsoDate(year, month, day) {
   return `${String(year)}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-app.listen(PORT, () => {
-  // Intentional minimal log for Render startup visibility.
-  console.log(`finance-api listening on ${PORT}`);
-});
+async function ensureSchema() {
+  if (!pool) {
+    return;
+  }
+
+  await pool.query(`alter table transactions add column if not exists statement_month_key text`);
+  await pool.query(`create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key)`);
+}
+
+async function start() {
+  try {
+    await ensureSchema();
+    app.listen(PORT, () => {
+      // Intentional minimal log for Render startup visibility.
+      console.log(`finance-api listening on ${PORT}`);
+    });
+  } catch (error) {
+    console.error("failed to start finance-api", error);
+    process.exit(1);
+  }
+}
+
+start();

@@ -88,6 +88,13 @@ body {
   margin-top: 10px;
 }
 
+.import-month {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  max-width: 220px;
+}
+
 .api-sync {
   margin-top: 12px;
   border-top: 1px solid var(--line);
