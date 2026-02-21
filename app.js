@@ -682,7 +682,7 @@ function compareTransactionOrder(a, b) {
   const dateB = parseDateToISO(b.date) || "";
 
   if (dateA !== dateB) {
-    return dateB.localeCompare(dateA);
+    return dateA.localeCompare(dateB);
   }
 
   // Keep ordering deterministic when multiple items share the same date.
