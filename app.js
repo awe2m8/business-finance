@@ -2,27 +2,40 @@ const STORAGE_KEY = "finance_os_transactions_v1";
 const API_URL_KEY = "finance_os_api_url_v1";
 const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 
-const CATEGORY_RULES = [
-  { keyword: "uber", category: "Transport" },
-  { keyword: "lyft", category: "Transport" },
-  { keyword: "amazon", category: "Supplies" },
-  { keyword: "adobe", category: "Software" },
-  { keyword: "google", category: "Software" },
-  { keyword: "rent", category: "Rent" },
-  { keyword: "stripe", category: "Bank Fees" },
-  { keyword: "restaurant", category: "Meals" },
-  { keyword: "doordash", category: "Meals" }
+const CATEGORY_OPTIONS = [
+  "Uncategorized",
+  "Assistable",
+  "Oracall AI",
+  "Go High Level",
+  "Instantly",
+  "Thinker",
+  "Twilio",
+  "ElevenLabs",
+  "Claude",
+  "OpenAI",
+  "Foreign Currency"
 ];
 
-const DEFAULT_SPLITS = {
-  Meals: 50,
-  Transport: 50,
-  Supplies: 50,
-  Software: 50,
-  Rent: 50,
-  "Bank Fees": 50,
-  Uncategorized: 50
-};
+const CATEGORY_RULES = [
+  { keyword: "assistable", category: "Assistable" },
+  { keyword: "oracall", category: "Oracall AI" },
+  { keyword: "go high level", category: "Go High Level" },
+  { keyword: "gohighlevel", category: "Go High Level" },
+  { keyword: "instantly", category: "Instantly" },
+  { keyword: "thinker", category: "Thinker" },
+  { keyword: "twilio", category: "Twilio" },
+  { keyword: "elevenlabs", category: "ElevenLabs" },
+  { keyword: "claude", category: "Claude" },
+  { keyword: "anthropic", category: "Claude" },
+  { keyword: "openai", category: "OpenAI" },
+  { keyword: "chatgpt", category: "OpenAI" },
+  { keyword: "foreign currency", category: "Foreign Currency" },
+  { keyword: "foreign exchange", category: "Foreign Currency" },
+  { keyword: "fx fee", category: "Foreign Currency" },
+  { keyword: "international transaction fee", category: "Foreign Currency" }
+];
+
+const DEFAULT_SPLITS = Object.fromEntries(CATEGORY_OPTIONS.map((category) => [category, 50]));
 
 const state = {
   transactions: [],
@@ -200,7 +213,7 @@ function normalizeTransaction(row, importMonthKey = null) {
 
   const descriptionLower = description.toLowerCase();
   const matchedRule = CATEGORY_RULES.find((r) => descriptionLower.includes(r.keyword));
-  const category = row.category || matchedRule?.category || "Uncategorized";
+  const category = normalizeCategory(row.category || matchedRule?.category || "Uncategorized");
   const confidence = row.category ? 0.95 : matchedRule ? 0.9 : 0.45;
   const splitPct = Number(row.partner_split_pct) || DEFAULT_SPLITS[category] || 50;
 
@@ -328,6 +341,15 @@ function normalizeMonthKey(value) {
   }
 
   return `${String(year)}-${String(month).padStart(2, "0")}`;
+}
+
+function normalizeCategory(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "Uncategorized";
+  }
+  const matched = CATEGORY_OPTIONS.find((option) => option.toLowerCase() === raw.toLowerCase());
+  return matched || raw;
 }
 
 function getCurrentMonthKey() {
@@ -626,7 +648,7 @@ function renderTransactions() {
       <td class="description-cell">${escapeHtml(t.description)}</td>
       <td>${formatCurrency(t.amount)}</td>
       <td>
-        <input value="${escapeHtml(t.category)}" data-id="${t.id}" data-field="category" />
+        ${renderCategorySelect(t)}
       </td>
       <td>
         <input type="number" min="0" max="100" value="${t.partnerSplitPct}" data-id="${t.id}" data-field="partnerSplitPct" />
@@ -634,12 +656,25 @@ function renderTransactions() {
       <td><span class="status ${t.status}">${t.status === "clean" ? "Clean" : "Needs Review"}</span></td>
     `;
 
-    tr.querySelectorAll("input").forEach((input) => {
-      input.addEventListener("change", onCellChange);
+    tr.querySelectorAll("input, select").forEach((control) => {
+      control.addEventListener("change", onCellChange);
     });
 
     els.tableBody.appendChild(tr);
   });
+}
+
+function renderCategorySelect(tx) {
+  const current = normalizeCategory(tx.category);
+  const options = CATEGORY_OPTIONS.includes(current) ? CATEGORY_OPTIONS : CATEGORY_OPTIONS.concat(current);
+  const optionMarkup = options
+    .map((category) => {
+      const selected = category === current ? " selected" : "";
+      return `<option value="${escapeHtml(category)}"${selected}>${escapeHtml(category)}</option>`;
+    })
+    .join("");
+
+  return `<select data-id="${tx.id}" data-field="category">${optionMarkup}</select>`;
 }
 
 function compareTransactionOrder(a, b) {
@@ -684,7 +719,7 @@ function onCellChange(event) {
   }
 
   if (field === "category") {
-    tx.category = event.target.value.trim() || "Uncategorized";
+    tx.category = normalizeCategory(event.target.value);
   }
 
   tx.status = tx.category === "Uncategorized" ? "needs-review" : "clean";
@@ -697,8 +732,8 @@ function onCellChange(event) {
 function downloadTemplate() {
   const csv = [
     "date,description,amount,account,category,partner_split_pct",
-    "2026-02-01,Adobe Creative Cloud,59.99,Business Checking,Software,50",
-    "2026-02-03,Uber Trip,22.15,Business Card,Transport,50"
+    "2026-02-01,OpenAI API Usage,59.99,Business Checking,OpenAI,50",
+    "2026-02-03,Twilio SMS,22.15,Business Card,Twilio,50"
   ].join("\n");
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -799,16 +834,19 @@ async function pullFromApi() {
     }
 
     const rows = await res.json();
-    const imported = rows.map((row) => ({
-      id: buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100),
-      date: formatDate(row.tx_date),
-      description: String(row.description || ""),
-      amount: Number(row.amount_cents) / 100,
-      category: String(row.category || "Uncategorized"),
-      partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
-      statementMonthKey: normalizeMonthKey(row.statement_month_key),
-      status: row.category && row.category !== "Uncategorized" ? "clean" : "needs-review"
-    }));
+    const imported = rows.map((row) => {
+      const category = normalizeCategory(row.category || "Uncategorized");
+      return {
+        id: buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100),
+        date: formatDate(row.tx_date),
+        description: String(row.description || ""),
+        amount: Number(row.amount_cents) / 100,
+        category,
+        partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
+        statementMonthKey: normalizeMonthKey(row.statement_month_key),
+        status: category === "Uncategorized" ? "needs-review" : "clean"
+      };
+    });
 
     upsertTransactions(imported);
     refreshDerivedData();
