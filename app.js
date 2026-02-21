@@ -282,6 +282,14 @@ function buildTransactionId(date, description, amount, suffix = "") {
   return suffix ? `${base}|${suffix}` : base;
 }
 
+function buildLegacyMatchKey(txDate, description, amount, statementMonthKey = null) {
+  const date = parseDateToISO(txDate) || "";
+  const normalizedDescription = String(description || "").toLowerCase().trim().replace(/\s+/g, " ");
+  const amountCents = Math.round((Number(amount) || 0) * 100);
+  const monthKey = normalizeMonthKey(statementMonthKey) || "";
+  return `${date}|${normalizedDescription}|${amountCents}|${monthKey}`;
+}
+
 function formatDate(value) {
   const normalized = parseDateToISO(value);
   if (normalized) {
@@ -1050,6 +1058,7 @@ async function syncToApi() {
 
     const payload = {
       items: validTransactions.map((t) => ({
+        client_tx_id: String(t.id),
         tx_date: t.txDate,
         description: t.description,
         amount_cents: Math.round(t.amount * 100),
@@ -1094,17 +1103,33 @@ async function pullFromApi() {
     }
 
     const rows = await res.json();
+    const existingIdByLegacyKey = new Map();
+    state.transactions.forEach((tx) => {
+      const key = buildLegacyMatchKey(tx.date, tx.description, tx.amount, tx.statementMonthKey);
+      if (!existingIdByLegacyKey.has(key)) {
+        existingIdByLegacyKey.set(key, tx.id);
+      }
+    });
+
     const imported = rows.map((row) => {
       const category = normalizeCategory(row.category || "Uncategorized");
+      const statementMonthKey = normalizeMonthKey(row.statement_month_key);
       const fallbackId = buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100);
+      const legacyKey = buildLegacyMatchKey(
+        row.tx_date,
+        row.description,
+        Number(row.amount_cents) / 100,
+        statementMonthKey
+      );
+      const existingId = existingIdByLegacyKey.get(legacyKey);
       return {
-        id: String(row.id || fallbackId),
+        id: String(row.client_tx_id || existingId || row.id || fallbackId),
         date: formatDate(row.tx_date),
         description: String(row.description || ""),
         amount: Number(row.amount_cents) / 100,
         category,
         partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
-        statementMonthKey: normalizeMonthKey(row.statement_month_key),
+        statementMonthKey,
         status: category === "Uncategorized" ? "needs-review" : "clean"
       };
     });

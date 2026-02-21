@@ -1,5 +1,6 @@
 create table if not exists transactions (
   id bigserial primary key,
+  client_tx_id text,
   tx_date date not null,
   description text not null,
   amount_cents integer not null,
@@ -12,7 +13,9 @@ create table if not exists transactions (
 );
 
 alter table transactions add column if not exists statement_month_key text;
+alter table transactions add column if not exists client_tx_id text;
 
 create index if not exists idx_transactions_tx_date on transactions (tx_date desc);
 create index if not exists idx_transactions_category on transactions (category);
 create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key);
+create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null;

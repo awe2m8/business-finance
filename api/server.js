@@ -38,7 +38,7 @@ app.get("/transactions", async (_req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `select id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at
+      `select id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at
        from transactions
        order by tx_date desc, created_at desc
        limit 1000`
@@ -66,6 +66,7 @@ app.post("/transactions/bulk", async (req, res) => {
     await client.query("begin");
 
     for (const item of items) {
+      const clientTxId = String(item.client_tx_id || "").trim() || null;
       const txDate = normalizeTxDate(item.tx_date || item.date);
       const description = String(item.description || "").trim();
       const amount = Number(item.amount_cents ?? Math.round(Number(item.amount || 0) * 100));
@@ -79,14 +80,15 @@ app.post("/transactions/bulk", async (req, res) => {
       }
 
       await client.query(
-        `insert into transactions (tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
-         values ($1, $2, $3, $4, $5, $6, $7)
+        `insert into transactions (client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          on conflict (tx_date, description, amount_cents) do update
-           set category = excluded.category,
+           set client_tx_id = coalesce(transactions.client_tx_id, excluded.client_tx_id),
+               category = excluded.category,
                partner_split_pct = excluded.partner_split_pct,
                statement_month_key = excluded.statement_month_key,
                source = excluded.source`,
-        [txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
+        [clientTxId, txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
       );
 
       inserted += 1;
@@ -108,36 +110,28 @@ function normalizeTxDate(value) {
     return null;
   }
 
+  const isoTimestamp = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
+  if (isoTimestamp) {
+    return isoTimestamp[1];
+  }
+
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     return raw;
   }
 
-  const dmyOrMdy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-  if (dmyOrMdy) {
-    const part1 = Number(dmyOrMdy[1]);
-    const part2 = Number(dmyOrMdy[2]);
-    const year = dmyOrMdy[3].length === 2 ? Number(`20${dmyOrMdy[3]}`) : Number(dmyOrMdy[3]);
-
-    if (part1 > 12) {
-      return toIsoDate(year, part2, part1); // DD/MM/YYYY
-    }
-
-    if (part2 > 12) {
-      return toIsoDate(year, part1, part2); // MM/DD/YYYY
-    }
-
-    return toIsoDate(year, part2, part1); // default ambiguous dates to DD/MM/YYYY
+  const ymdSlash = raw.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})(?:\s.*)?$/);
+  if (ymdSlash) {
+    return toIsoDate(Number(ymdSlash[1]), Number(ymdSlash[2]), Number(ymdSlash[3]));
   }
 
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
+  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s.*)?$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = dmy[3].length === 2 ? Number(`20${dmy[3]}`) : Number(dmy[3]);
+    return toIsoDate(year, month, day); // Australian format: DD/MM/YYYY
   }
-
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, "0");
-  const d = String(parsed.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return null;
 }
 
 function normalizeMonthKey(value) {
@@ -184,7 +178,9 @@ async function ensureSchema() {
   }
 
   await pool.query(`alter table transactions add column if not exists statement_month_key text`);
+  await pool.query(`alter table transactions add column if not exists client_tx_id text`);
   await pool.query(`create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key)`);
+  await pool.query(`create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null`);
 }
 
 async function start() {
