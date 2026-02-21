@@ -306,6 +306,42 @@ td select {
   min-width: 140px;
 }
 
+.category-select {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.category-tone-credit {
+  background: #d8f7df;
+  border-color: #84d19a;
+  color: #0f5b29;
+}
+
+.category-tone-expense-1 {
+  background: #fde2e2;
+  border-color: #f5aaaa;
+  color: #7a1f1f;
+}
+
+.category-tone-expense-2 {
+  background: #ffd9d6;
+  border-color: #f4a39d;
+  color: #7f211a;
+}
+
+.category-tone-expense-3 {
+  background: #ffe5dd;
+  border-color: #f3b49f;
+  color: #7a2d1f;
+}
+
+.category-tone-expense-4 {
+  background: #ffeceb;
+  border-color: #efb8b3;
+  color: #7c2a28;
+}
+
 .status {
   padding: 2px 8px;
   border-radius: 999px;

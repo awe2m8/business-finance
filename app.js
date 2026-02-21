@@ -4,6 +4,8 @@ const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
+  "Credit",
+  "Giles Credit",
   "Assistable",
   "Oracall AI",
   "Go High Level",
@@ -15,8 +17,14 @@ const CATEGORY_OPTIONS = [
   "OpenAI",
   "Foreign Currency"
 ];
+const CREDIT_CATEGORIES = new Set(["Credit", "Giles Credit"]);
+const CATEGORY_ALIASES = {
+  "credit giles": "Giles Credit",
+  "giles credit": "Giles Credit"
+};
 
 const CATEGORY_RULES = [
+  { keyword: "giles", category: "Giles Credit" },
   { keyword: "assistable", category: "Assistable" },
   { keyword: "oracall", category: "Oracall AI" },
   { keyword: "go high level", category: "Go High Level" },
@@ -342,6 +350,10 @@ function normalizeCategory(value) {
   const raw = String(value || "").trim();
   if (!raw) {
     return "Uncategorized";
+  }
+  const alias = CATEGORY_ALIASES[raw.toLowerCase()];
+  if (alias) {
+    return alias;
   }
   const matched = CATEGORY_OPTIONS.find((option) => option.toLowerCase() === raw.toLowerCase());
   return matched || raw;
@@ -709,7 +721,28 @@ function renderCategorySelect(tx) {
     })
     .join("");
 
-  return `<select data-id="${tx.id}" data-field="category">${optionMarkup}</select>`;
+  const toneClass = getCategoryToneClass(current);
+  return `<select class="category-select ${toneClass}" data-id="${tx.id}" data-field="category">${optionMarkup}</select>`;
+}
+
+function getCategoryToneClass(category) {
+  const normalized = normalizeCategory(category);
+  if (CREDIT_CATEGORIES.has(normalized)) {
+    return "category-tone-credit";
+  }
+  const expenseCategories = CATEGORY_OPTIONS.filter((option) => !CREDIT_CATEGORIES.has(option));
+  const knownIndex = expenseCategories.indexOf(normalized);
+  const paletteIndex = knownIndex >= 0 ? knownIndex % 4 : hashString(normalized) % 4;
+  return `category-tone-expense-${paletteIndex + 1}`;
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
 }
 
 function compareTransactionOrder(a, b) {
