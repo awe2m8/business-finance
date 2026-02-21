@@ -66,7 +66,7 @@ app.post("/transactions/bulk", async (req, res) => {
     await client.query("begin");
 
     for (const item of items) {
-      const txDate = item.tx_date || item.date;
+      const txDate = normalizeTxDate(item.tx_date || item.date);
       const description = String(item.description || "").trim();
       const amount = Number(item.amount_cents ?? Math.round(Number(item.amount || 0) * 100));
       const category = String(item.category || "Uncategorized");
@@ -99,6 +99,66 @@ app.post("/transactions/bulk", async (req, res) => {
     client.release();
   }
 });
+
+function normalizeTxDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const dmyOrMdy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (dmyOrMdy) {
+    const part1 = Number(dmyOrMdy[1]);
+    const part2 = Number(dmyOrMdy[2]);
+    const year = dmyOrMdy[3].length === 2 ? Number(`20${dmyOrMdy[3]}`) : Number(dmyOrMdy[3]);
+
+    if (part1 > 12) {
+      return toIsoDate(year, part2, part1); // DD/MM/YYYY
+    }
+
+    if (part2 > 12) {
+      return toIsoDate(year, part1, part2); // MM/DD/YYYY
+    }
+
+    return toIsoDate(year, part2, part1); // default ambiguous dates to DD/MM/YYYY
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function toIsoDate(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const valid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  if (!valid) {
+    return null;
+  }
+
+  return `${String(year)}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 
 app.listen(PORT, () => {
   // Intentional minimal log for Render startup visibility.

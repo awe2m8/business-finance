@@ -153,6 +153,11 @@ function normalizeTransaction(row) {
     return null;
   }
 
+  const txDate = parseDateToISO(dateValue);
+  if (!txDate) {
+    return null;
+  }
+
   const amount = Math.abs(Number(String(amountValue).replace(/[^0-9.-]/g, "")));
   if (Number.isNaN(amount)) {
     return null;
@@ -165,8 +170,8 @@ function normalizeTransaction(row) {
   const splitPct = Number(row.partner_split_pct) || DEFAULT_SPLITS[category] || 50;
 
   return {
-    id: buildTransactionId(dateValue, description, amount),
-    date: formatDate(dateValue),
+    id: buildTransactionId(txDate, description, amount),
+    date: txDate,
     description: description.trim(),
     amount,
     category,
@@ -180,13 +185,86 @@ function buildTransactionId(date, description, amount) {
 }
 
 function formatDate(value) {
+  const normalized = parseDateToISO(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  return String(value).trim();
+}
+
+function parseDateToISO(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const ymdSlash = raw.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+  if (ymdSlash) {
+    return toISODate(Number(ymdSlash[1]), Number(ymdSlash[2]), Number(ymdSlash[3]));
+  }
+
+  const dmyOrMdy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (dmyOrMdy) {
+    const part1 = Number(dmyOrMdy[1]);
+    const part2 = Number(dmyOrMdy[2]);
+    const year = normalizeYear(dmyOrMdy[3]);
+
+    if (part1 > 12) {
+      return toISODate(year, part2, part1); // DD/MM/YYYY
+    }
+
+    if (part2 > 12) {
+      return toISODate(year, part1, part2); // MM/DD/YYYY
+    }
+
+    return toISODate(year, part2, part1); // default ambiguous dates to DD/MM/YYYY
+  }
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return value;
+    return null;
   }
+
   const y = parsed.getFullYear();
   const m = String(parsed.getMonth() + 1).padStart(2, "0");
   const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function normalizeYear(yearValue) {
+  if (yearValue.length === 2) {
+    return Number(`20${yearValue}`);
+  }
+  return Number(yearValue);
+}
+
+function toISODate(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const valid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  if (!valid) {
+    return null;
+  }
+
+  const y = String(year);
+  const m = String(month).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -316,8 +394,9 @@ function renderTransactions() {
       (reviewFilter === "needs-review" && t.status === "needs-review") ||
       (reviewFilter === "clean" && t.status === "clean");
 
-    const matchesDateFrom = !dateFrom || t.date >= dateFrom;
-    const matchesDateTo = !dateTo || t.date <= dateTo;
+    const txDate = parseDateToISO(t.date);
+    const matchesDateFrom = !dateFrom || (txDate && txDate >= dateFrom);
+    const matchesDateTo = !dateTo || (txDate && txDate <= dateTo);
 
     return matchesText && matchesReview && matchesDateFrom && matchesDateTo;
   });
@@ -437,9 +516,18 @@ async function syncToApi() {
   }
 
   try {
+    const validTransactions = state.transactions
+      .map((t) => ({ ...t, txDate: parseDateToISO(t.date) }))
+      .filter((t) => Boolean(t.txDate));
+
+    if (!validTransactions.length) {
+      alert("No valid dated transactions to sync. Check your CSV date format.");
+      return;
+    }
+
     const payload = {
-      items: state.transactions.map((t) => ({
-        tx_date: t.date,
+      items: validTransactions.map((t) => ({
+        tx_date: t.txDate,
         description: t.description,
         amount_cents: Math.round(t.amount * 100),
         category: t.category,

@@ -54,3 +54,10 @@ Optional columns:
 - `account`
 - `category`
 - `partner_split_pct`
+
+Supported date formats:
+- `YYYY-MM-DD`
+- `DD/MM/YYYY`
+- `MM/DD/YYYY`
+
+Note: ambiguous slash dates are interpreted as `DD/MM/YYYY` by default.
