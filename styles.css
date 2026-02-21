@@ -76,6 +76,10 @@ body {
   grid-column: 1 / -1;
 }
 
+.insights-panel {
+  grid-column: 1 / -1;
+}
+
 .transactions-panel {
   grid-column: 1 / -1;
 }
@@ -256,6 +260,119 @@ button.danger {
   color: var(--muted);
 }
 
+.insights-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.insight-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, #fff, #f8fbfa);
+}
+
+.insight-kicker {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.insight-card h3 {
+  margin: 6px 0 8px;
+  font-size: 1rem;
+}
+
+.insight-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.insight-main span {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.insight-main small {
+  color: var(--muted);
+}
+
+.insight-stats {
+  display: grid;
+  gap: 6px;
+}
+
+.insight-stats span {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.insight-stats strong {
+  color: var(--ink);
+}
+
+.insight-dual-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+.insight-dual-metrics span {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.insight-dual-metrics small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.compact-list {
+  margin: 8px 0;
+}
+
+.compact-list li {
+  margin: 6px 0;
+}
+
+.vendor-row {
+  display: grid;
+  gap: 4px;
+}
+
+.vendor-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.vendor-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #e8efeb;
+  overflow: hidden;
+}
+
+.vendor-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2ca57c, #1d8f6a);
+}
+
+.insight-footer {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -383,5 +500,9 @@ td select {
   .api-sync {
     min-width: 0;
     width: 100%;
+  }
+
+  .insight-dual-metrics {
+    grid-template-columns: 1fr;
   }
 }

@@ -74,7 +74,21 @@ const els = {
   metricTotal: document.getElementById("metricTotal"),
   metricCount: document.getElementById("metricCount"),
   metricNeedsReview: document.getElementById("metricNeedsReview"),
-  metricRecurring: document.getElementById("metricRecurring")
+  metricRecurring: document.getElementById("metricRecurring"),
+  insightScopeLabel: document.getElementById("insightScopeLabel"),
+  closeScore: document.getElementById("closeScore"),
+  closeStatus: document.getElementById("closeStatus"),
+  closeUncategorized: document.getElementById("closeUncategorized"),
+  closeNeedsReview: document.getElementById("closeNeedsReview"),
+  closeMissingSplit: document.getElementById("closeMissingSplit"),
+  partnerShareAmount: document.getElementById("partnerShareAmount"),
+  businessShareAmount: document.getElementById("businessShareAmount"),
+  partnerSplitRatio: document.getElementById("partnerSplitRatio"),
+  partnerExpenseTotal: document.getElementById("partnerExpenseTotal"),
+  partnerCreditTotal: document.getElementById("partnerCreditTotal"),
+  vendorConcentrationPercent: document.getElementById("vendorConcentrationPercent"),
+  vendorTopList: document.getElementById("vendorTopList"),
+  vendorTopTotal: document.getElementById("vendorTopTotal")
 };
 
 function init() {
@@ -511,8 +525,150 @@ function loadTransactions() {
 function render() {
   renderMetrics();
   renderMonthPanel();
+  renderInsights();
   renderTransactions();
   renderRecurring();
+}
+
+function getAnalysisTransactions() {
+  const dateFrom = els.dateFromInput.value;
+  const dateTo = els.dateToInput.value;
+  const selectedMonthKey = state.selectedMonthKey;
+
+  return state.transactions.filter((t) => {
+    const txDate = parseDateToISO(t.date);
+    const matchesDateFrom = !dateFrom || (txDate && txDate >= dateFrom);
+    const matchesDateTo = !dateTo || (txDate && txDate <= dateTo);
+    const matchesMonth = !selectedMonthKey || normalizeMonthKey(t.statementMonthKey) === selectedMonthKey;
+    return matchesDateFrom && matchesDateTo && matchesMonth;
+  });
+}
+
+function renderInsights() {
+  const scopedTransactions = getAnalysisTransactions();
+  renderCloseHub(scopedTransactions);
+  renderPartnerSplitOverview(scopedTransactions);
+  renderVendorConcentration(scopedTransactions);
+}
+
+function renderCloseHub(transactions) {
+  const total = transactions.length;
+  const uncategorized = transactions.filter((t) => normalizeCategory(t.category) === "Uncategorized").length;
+  const needsReview = transactions.filter((t) => t.status === "needs-review").length;
+  const missingSplit = transactions.filter((t) => !Number.isFinite(Number(t.partnerSplitPct))).length;
+  const issuePoints = uncategorized * 2 + needsReview * 2 + missingSplit;
+  const maxPoints = Math.max(total * 5, 1);
+  const score = total ? Math.max(0, Math.round(100 - (issuePoints / maxPoints) * 100)) : 100;
+
+  let statusText = "Ready to close";
+  if (!total) {
+    statusText = "No transactions in scope";
+  } else if (score < 75) {
+    statusText = "Needs cleanup";
+  } else if (score < 90) {
+    statusText = "Almost ready";
+  }
+
+  els.insightScopeLabel.textContent = buildInsightScopeLabel();
+  els.closeScore.textContent = `${score}%`;
+  els.closeStatus.textContent = statusText;
+  els.closeUncategorized.textContent = String(uncategorized);
+  els.closeNeedsReview.textContent = String(needsReview);
+  els.closeMissingSplit.textContent = String(missingSplit);
+}
+
+function buildInsightScopeLabel() {
+  const monthLabel = state.selectedMonthKey ? formatMonthKeyLabel(state.selectedMonthKey) : "All Months";
+  const dateFrom = els.dateFromInput.value;
+  const dateTo = els.dateToInput.value;
+  if (!dateFrom && !dateTo) {
+    return monthLabel;
+  }
+  const fromLabel = dateFrom ? formatDateAustralian(dateFrom) : "start";
+  const toLabel = dateTo ? formatDateAustralian(dateTo) : "end";
+  return `${monthLabel} (${fromLabel} to ${toLabel})`;
+}
+
+function renderPartnerSplitOverview(transactions) {
+  let expenseTotal = 0;
+  let creditTotal = 0;
+  let partnerExpenseAllocation = 0;
+  let partnerNetAllocation = 0;
+  let businessNetAllocation = 0;
+
+  transactions.forEach((tx) => {
+    const amount = Number(tx.amount) || 0;
+    const splitRatio = clamp(Number(tx.partnerSplitPct), 0, 100) / 100;
+    partnerNetAllocation += amount * splitRatio;
+    businessNetAllocation += amount * (1 - splitRatio);
+
+    if (amount > 0) {
+      expenseTotal += amount;
+      partnerExpenseAllocation += amount * splitRatio;
+    } else if (amount < 0) {
+      creditTotal += Math.abs(amount);
+    }
+  });
+
+  const partnerRatio = expenseTotal ? Math.round((partnerExpenseAllocation / expenseTotal) * 100) : 0;
+
+  els.partnerShareAmount.textContent = formatCurrency(partnerNetAllocation);
+  els.businessShareAmount.textContent = formatCurrency(businessNetAllocation);
+  els.partnerSplitRatio.textContent = `${partnerRatio}%`;
+  els.partnerExpenseTotal.textContent = formatCurrency(expenseTotal);
+  els.partnerCreditTotal.textContent = formatCurrency(creditTotal);
+}
+
+function renderVendorConcentration(transactions) {
+  const expenseTransactions = transactions.filter((t) => (Number(t.amount) || 0) > 0);
+  const totalExpense = expenseTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const vendorTotals = new Map();
+
+  expenseTransactions.forEach((tx) => {
+    const vendorKey = canonicalMerchant(tx.description) || "uncategorized vendor";
+    vendorTotals.set(vendorKey, (vendorTotals.get(vendorKey) || 0) + Number(tx.amount || 0));
+  });
+
+  const topVendors = Array.from(vendorTotals.entries())
+    .map(([vendor, amount]) => ({ vendor, amount }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+
+  const topTotal = topVendors.reduce((sum, item) => sum + item.amount, 0);
+  const concentrationPct = totalExpense ? Math.round((topTotal / totalExpense) * 100) : 0;
+
+  els.vendorConcentrationPercent.textContent = `${concentrationPct}%`;
+  els.vendorTopTotal.textContent = formatCurrency(topTotal);
+
+  if (!topVendors.length) {
+    els.vendorTopList.innerHTML = "<li>No vendor spend in current scope.</li>";
+    return;
+  }
+
+  els.vendorTopList.innerHTML = topVendors
+    .map((item) => {
+      const share = totalExpense ? (item.amount / totalExpense) * 100 : 0;
+      return `
+        <li>
+          <div class="vendor-row">
+            <div class="vendor-row-top">
+              <span>${escapeHtml(toTitleCase(item.vendor))}</span>
+              <span>${formatCurrency(item.amount)} (${Math.round(share)}%)</span>
+            </div>
+            <div class="vendor-bar"><span style="width:${Math.max(2, Math.round(share))}%"></span></div>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+}
+
+function toTitleCase(value) {
+  return String(value || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function renderMetrics() {

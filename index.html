@@ -67,6 +67,51 @@
         </div>
       </section>
 
+      <section class="card insights-panel">
+        <h2>Insights</h2>
+        <p class="hint">Focused analytics for month-close quality, partner split outcomes, and vendor concentration.</p>
+        <div class="insights-grid">
+          <article class="insight-card">
+            <small class="insight-kicker">Month Close Hub</small>
+            <h3 id="insightScopeLabel">All Months</h3>
+            <div class="insight-main">
+              <span id="closeScore">100</span>
+              <small id="closeStatus">Ready to close</small>
+            </div>
+            <div class="insight-stats">
+              <span><strong id="closeUncategorized">0</strong> uncategorized</span>
+              <span><strong id="closeNeedsReview">0</strong> needs review</span>
+              <span><strong id="closeMissingSplit">0</strong> missing split</span>
+            </div>
+          </article>
+
+          <article class="insight-card">
+            <small class="insight-kicker">Partner Split Overview</small>
+            <h3>Allocation Summary</h3>
+            <div class="insight-dual-metrics">
+              <div><span id="partnerShareAmount">$0.00</span><small>Partner Allocation (Net)</small></div>
+              <div><span id="businessShareAmount">$0.00</span><small>Business Allocation (Net)</small></div>
+            </div>
+            <div class="insight-stats">
+              <span><strong id="partnerSplitRatio">50%</strong> partner share ratio</span>
+              <span><strong id="partnerExpenseTotal">$0.00</strong> expense base</span>
+              <span><strong id="partnerCreditTotal">$0.00</strong> credits applied</span>
+            </div>
+          </article>
+
+          <article class="insight-card">
+            <small class="insight-kicker">Vendor Concentration</small>
+            <h3>Top 5 Vendors</h3>
+            <div class="insight-main">
+              <span id="vendorConcentrationPercent">0%</span>
+              <small>of expense base in top vendors</small>
+            </div>
+            <ul id="vendorTopList" class="list compact-list"></ul>
+            <div class="insight-footer">Top-5 Spend: <strong id="vendorTopTotal">$0.00</strong></div>
+          </article>
+        </div>
+      </section>
+
       <section class="card transactions-panel">
         <h2>Transactions</h2>
         <div class="filters">
