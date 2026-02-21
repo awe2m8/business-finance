@@ -49,7 +49,7 @@ const els = {
 };
 
 function init() {
-  state.transactions = loadTransactions();
+  state.transactions = loadTransactions().sort(compareTransactionOrder);
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
   refreshDerivedData();
   bindEvents();
@@ -273,7 +273,7 @@ function upsertTransactions(items) {
   items.forEach((item) => {
     map.set(item.id, item);
   });
-  state.transactions = Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  state.transactions = Array.from(map.values()).sort(compareTransactionOrder);
 }
 
 function refreshDerivedData() {
@@ -401,6 +401,8 @@ function renderTransactions() {
     return matchesText && matchesReview && matchesDateFrom && matchesDateTo;
   });
 
+  filtered.sort(compareTransactionOrder);
+
   els.tableBody.innerHTML = "";
 
   filtered.forEach((t) => {
@@ -424,6 +426,18 @@ function renderTransactions() {
 
     els.tableBody.appendChild(tr);
   });
+}
+
+function compareTransactionOrder(a, b) {
+  const dateA = parseDateToISO(a.date) || "";
+  const dateB = parseDateToISO(b.date) || "";
+
+  if (dateA !== dateB) {
+    return dateB.localeCompare(dateA);
+  }
+
+  // Keep ordering deterministic when multiple items share the same date.
+  return String(a.id).localeCompare(String(b.id));
 }
 
 function renderRecurring() {
