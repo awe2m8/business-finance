@@ -435,6 +435,12 @@ td select {
   color: #0f5b29;
 }
 
+.category-tone-waiting {
+  background: #fff7cc;
+  border-color: #f1d16a;
+  color: #7c5a00;
+}
+
 .category-tone-expense-1 {
   background: #fde2e2;
   border-color: #f5aaaa;
@@ -470,6 +476,12 @@ td select {
   background: #fff7ed;
   border-color: #fed7aa;
   color: var(--warn);
+}
+
+.status.waiting {
+  background: #fff7cc;
+  border-color: #f1d16a;
+  color: #7c5a00;
 }
 
 .status.clean {

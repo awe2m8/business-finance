@@ -847,6 +847,11 @@ function renderTransactions() {
   els.tableBody.innerHTML = "";
 
   filtered.forEach((t) => {
+    const normalizedCategory = normalizeCategory(t.category);
+    const isWaiting = normalizedCategory === "Uncategorized";
+    const statusClass = isWaiting ? "waiting" : t.status;
+    const statusLabel = isWaiting ? "Waiting" : t.status === "clean" ? "Clean" : "Needs Review";
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatDateAustralian(t.date)}</td>
@@ -858,7 +863,7 @@ function renderTransactions() {
       <td>
         <input type="number" min="0" max="100" value="${t.partnerSplitPct}" data-id="${t.id}" data-field="partnerSplitPct" />
       </td>
-      <td><span class="status ${t.status}">${t.status === "clean" ? "Clean" : "Needs Review"}</span></td>
+      <td><span class="status ${statusClass}">${statusLabel}</span></td>
     `;
 
     tr.querySelectorAll("input, select").forEach((control) => {
@@ -885,6 +890,9 @@ function renderCategorySelect(tx) {
 
 function getCategoryToneClass(category) {
   const normalized = normalizeCategory(category);
+  if (normalized === "Uncategorized") {
+    return "category-tone-waiting";
+  }
   if (CREDIT_CATEGORIES.has(normalized)) {
     return "category-tone-credit";
   }
