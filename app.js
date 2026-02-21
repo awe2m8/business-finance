@@ -70,7 +70,7 @@ const els = {
 };
 
 function init() {
-  state.transactions = loadTransactions().sort(compareTransactionOrder);
+  state.transactions = normalizeStoredTransactions(loadTransactions()).sort(compareTransactionOrder);
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
   els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
@@ -107,8 +107,9 @@ function handleImportClick() {
   const reader = new FileReader();
   reader.onload = (e) => {
     const text = String(e.target.result || "");
+    let nextSortOrdinal = getNextSortOrdinal();
     const imported = parseCSV(text)
-      .map((row) => normalizeTransaction(row, selectedImportMonth))
+      .map((row, index) => normalizeTransaction(row, selectedImportMonth, nextSortOrdinal++, index + 1))
       .filter(Boolean);
 
     if (!imported.length) {
@@ -178,7 +179,7 @@ function splitCSVLine(line) {
   return out;
 }
 
-function normalizeTransaction(row, importMonthKey = null) {
+function normalizeTransaction(row, importMonthKey = null, sortOrdinal = null, rowIndex = null) {
   const dateValue = row.date || row.posted || row.transaction_date;
   const description = row.description || row.memo || row.vendor || "";
   const debitValue = row.debit || row.withdrawal || row.charge || "";
@@ -217,14 +218,18 @@ function normalizeTransaction(row, importMonthKey = null) {
   const confidence = row.category ? 0.95 : matchedRule ? 0.9 : 0.45;
   const splitPct = Number(row.partner_split_pct) || DEFAULT_SPLITS[category] || 50;
 
+  const normalizedMonthKey = normalizeMonthKey(importMonthKey || row.statement_month_key || row.statement_month || "");
+  const importRowKey = Number.isFinite(Number(rowIndex)) ? Number(rowIndex) : null;
+
   return {
-    id: buildTransactionId(txDate, description, amount),
+    id: buildTransactionId(txDate, description, amount, normalizedMonthKey && importRowKey ? `${normalizedMonthKey}:${importRowKey}` : ""),
     date: txDate,
     description: description.trim(),
     amount,
     category,
     partnerSplitPct: clamp(splitPct, 0, 100),
-    statementMonthKey: normalizeMonthKey(importMonthKey || row.statement_month_key || row.statement_month || ""),
+    statementMonthKey: normalizedMonthKey,
+    sortOrdinal: Number.isFinite(Number(sortOrdinal)) ? Number(sortOrdinal) : null,
     status: confidence >= 0.8 ? "clean" : "needs-review"
   };
 }
@@ -239,8 +244,11 @@ function parseAmount(value) {
   return Number.isNaN(numeric) ? null : numeric;
 }
 
-function buildTransactionId(date, description, amount) {
-  return `${formatDate(date)}|${description.toLowerCase().trim()}|${amount.toFixed(2)}`;
+function buildTransactionId(date, description, amount, suffix = "") {
+  const safeDescription = String(description || "").toLowerCase().trim();
+  const safeAmount = Number(amount) || 0;
+  const base = `${formatDate(date)}|${safeDescription}|${safeAmount.toFixed(2)}`;
+  return suffix ? `${base}|${suffix}` : base;
 }
 
 function formatDate(value) {
@@ -258,41 +266,28 @@ function parseDateToISO(value) {
     return null;
   }
 
+  const isoTimestamp = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
+  if (isoTimestamp) {
+    return isoTimestamp[1];
+  }
+
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     return raw;
   }
 
-  const ymdSlash = raw.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+  const ymdSlash = raw.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})(?:\s.*)?$/);
   if (ymdSlash) {
     return toISODate(Number(ymdSlash[1]), Number(ymdSlash[2]), Number(ymdSlash[3]));
   }
 
-  const dmyOrMdy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-  if (dmyOrMdy) {
-    const part1 = Number(dmyOrMdy[1]);
-    const part2 = Number(dmyOrMdy[2]);
-    const year = normalizeYear(dmyOrMdy[3]);
-
-    if (part1 > 12) {
-      return toISODate(year, part2, part1); // DD/MM/YYYY
-    }
-
-    if (part2 > 12) {
-      return toISODate(year, part1, part2); // MM/DD/YYYY
-    }
-
-    return toISODate(year, part2, part1); // default ambiguous dates to DD/MM/YYYY
+  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s.*)?$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = normalizeYear(dmy[3]);
+    return toISODate(year, month, day); // Australian format: DD/MM/YYYY
   }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, "0");
-  const d = String(parsed.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return null;
 }
 
 function normalizeYear(yearValue) {
@@ -359,10 +354,50 @@ function getCurrentMonthKey() {
   return `${year}-${month}`;
 }
 
+function normalizeStoredTransactions(items) {
+  let nextSortOrdinal = 1;
+  return items.map((tx) => {
+    const normalized = { ...tx };
+    const existingOrdinal = Number(normalized.sortOrdinal);
+    if (Number.isFinite(existingOrdinal) && existingOrdinal > 0) {
+      normalized.sortOrdinal = existingOrdinal;
+      nextSortOrdinal = Math.max(nextSortOrdinal, existingOrdinal + 1);
+    } else {
+      normalized.sortOrdinal = nextSortOrdinal++;
+    }
+    return normalized;
+  });
+}
+
+function getNextSortOrdinal() {
+  return (
+    state.transactions.reduce((max, tx) => {
+      const current = Number(tx.sortOrdinal);
+      return Number.isFinite(current) && current > max ? current : max;
+    }, 0) + 1
+  );
+}
+
 function upsertTransactions(items) {
   const map = new Map(state.transactions.map((t) => [t.id, t]));
+  let nextSortOrdinal =
+    Array.from(map.values()).reduce((max, tx) => {
+      const current = Number(tx.sortOrdinal);
+      return Number.isFinite(current) && current > max ? current : max;
+    }, 0) + 1;
+
   items.forEach((item) => {
-    map.set(item.id, item);
+    const existing = map.get(item.id);
+    const merged = {
+      ...(existing || {}),
+      ...item
+    };
+    if (existing && Number.isFinite(Number(existing.sortOrdinal)) && Number(existing.sortOrdinal) > 0) {
+      merged.sortOrdinal = Number(existing.sortOrdinal);
+    } else if (!Number.isFinite(Number(merged.sortOrdinal)) || Number(merged.sortOrdinal) <= 0) {
+      merged.sortOrdinal = nextSortOrdinal++;
+    }
+    map.set(item.id, merged);
   });
   state.transactions = Array.from(map.values()).sort(compareTransactionOrder);
 }
@@ -644,7 +679,7 @@ function renderTransactions() {
   filtered.forEach((t) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${t.date}</td>
+      <td>${formatDateAustralian(t.date)}</td>
       <td class="description-cell">${escapeHtml(t.description)}</td>
       <td>${formatCurrency(t.amount)}</td>
       <td>
@@ -685,7 +720,24 @@ function compareTransactionOrder(a, b) {
     return dateA.localeCompare(dateB);
   }
 
-  // Keep ordering deterministic when multiple items share the same date.
+  const ordinalA = Number(a.sortOrdinal);
+  const ordinalB = Number(b.sortOrdinal);
+  const hasOrdinalA = Number.isFinite(ordinalA) && ordinalA > 0;
+  const hasOrdinalB = Number.isFinite(ordinalB) && ordinalB > 0;
+
+  if (hasOrdinalA && hasOrdinalB && ordinalA !== ordinalB) {
+    return ordinalA - ordinalB;
+  }
+
+  if (hasOrdinalA && !hasOrdinalB) {
+    return -1;
+  }
+
+  if (!hasOrdinalA && hasOrdinalB) {
+    return 1;
+  }
+
+  // Final tie-break for deterministic ordering.
   return String(a.id).localeCompare(String(b.id));
 }
 
@@ -749,6 +801,15 @@ function downloadTemplate() {
 
 function formatCurrency(num) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num || 0);
+}
+
+function formatDateAustralian(value) {
+  const iso = parseDateToISO(value);
+  if (!iso) {
+    return String(value || "");
+  }
+  const [year, month, day] = iso.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 function escapeHtml(input) {
@@ -836,8 +897,9 @@ async function pullFromApi() {
     const rows = await res.json();
     const imported = rows.map((row) => {
       const category = normalizeCategory(row.category || "Uncategorized");
+      const fallbackId = buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100);
       return {
-        id: buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100),
+        id: String(row.id || fallbackId),
         date: formatDate(row.tx_date),
         description: String(row.description || ""),
         amount: Number(row.amount_cents) / 100,
