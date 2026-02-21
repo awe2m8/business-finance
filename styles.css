@@ -167,6 +167,13 @@ button.danger {
   text-align: left;
 }
 
+.month-badge-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .month-badge.active {
   background: var(--accent-soft);
   border-color: #8cd8be;
@@ -182,6 +189,25 @@ button.danger {
   display: block;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.month-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--muted);
+  background: #fff;
+}
+
+.month-delete-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .month-summary {

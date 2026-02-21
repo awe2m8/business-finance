@@ -493,12 +493,26 @@ function renderMonthPanel() {
   summaries.forEach((summary) => {
     const btn = document.createElement("button");
     btn.className = `month-badge ${state.selectedMonthKey === summary.key ? "active" : ""}`.trim();
-    btn.innerHTML = `<span class="month-name">${escapeHtml(summary.label)}</span><span class="month-meta">${summary.count} tx</span>`;
+    btn.innerHTML = `
+      <span class="month-badge-top">
+        <span class="month-name">${escapeHtml(summary.label)}</span>
+        <span class="month-delete-btn" data-month-delete="${summary.key}" role="button" aria-label="Delete ${escapeHtml(summary.label)}">×</span>
+      </span>
+      <span class="month-meta">${summary.count} tx</span>
+    `;
     btn.addEventListener("click", () => {
       state.selectedMonthKey = summary.key;
       persistSelectedMonth();
       render();
     });
+    const deleteBtn = btn.querySelector("[data-month-delete]");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        deleteMonthBatch(summary);
+      });
+    }
     els.monthBadgeRow.appendChild(btn);
   });
 
@@ -514,6 +528,26 @@ function renderMonthPanel() {
   els.monthExpenseTotal.textContent = formatCurrency(activeSummary.expenses || 0);
   els.monthCreditTotal.textContent = formatCurrency(activeSummary.credits || 0);
   els.monthTxCount.textContent = String(activeSummary.count || 0);
+}
+
+function deleteMonthBatch(summary) {
+  const monthKey = summary.key;
+  const label = summary.label;
+  const count = summary.count;
+  const ok = confirm(`Delete ${count} transaction(s) for ${label}? This cannot be undone.`);
+  if (!ok) {
+    return;
+  }
+
+  state.transactions = state.transactions.filter((tx) => normalizeMonthKey(tx.statementMonthKey) !== monthKey);
+  if (state.selectedMonthKey === monthKey) {
+    state.selectedMonthKey = null;
+    persistSelectedMonth();
+  }
+
+  refreshDerivedData();
+  persist();
+  render();
 }
 
 function buildMonthSummaries(transactions) {
