@@ -60,6 +60,10 @@ body {
   grid-column: 1 / -1;
 }
 
+.month-panel {
+  grid-column: 1 / -1;
+}
+
 .transactions-panel {
   grid-column: 1 / -1;
 }
@@ -136,6 +140,62 @@ button.danger {
 }
 
 .metric-grid small {
+  color: var(--muted);
+}
+
+.month-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.month-badge {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-width: 120px;
+  text-align: left;
+}
+
+.month-badge.active {
+  background: var(--accent-soft);
+  border-color: #8cd8be;
+  color: #0b684d;
+}
+
+.month-badge .month-name {
+  display: block;
+  font-weight: 600;
+}
+
+.month-badge .month-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.month-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.month-summary article {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.month-summary span {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.month-summary small {
   color: var(--muted);
 }
 

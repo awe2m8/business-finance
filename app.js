@@ -1,5 +1,6 @@
 const STORAGE_KEY = "finance_os_transactions_v1";
 const API_URL_KEY = "finance_os_api_url_v1";
+const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 
 const CATEGORY_RULES = [
   { keyword: "uber", category: "Transport" },
@@ -25,7 +26,8 @@ const DEFAULT_SPLITS = {
 
 const state = {
   transactions: [],
-  recurring: []
+  recurring: [],
+  selectedMonthKey: null
 };
 
 const els = {
@@ -40,6 +42,11 @@ const els = {
   reviewFilter: document.getElementById("reviewFilter"),
   dateFromInput: document.getElementById("dateFromInput"),
   dateToInput: document.getElementById("dateToInput"),
+  monthBadgeRow: document.getElementById("monthBadgeRow"),
+  monthSelectedLabel: document.getElementById("monthSelectedLabel"),
+  monthExpenseTotal: document.getElementById("monthExpenseTotal"),
+  monthCreditTotal: document.getElementById("monthCreditTotal"),
+  monthTxCount: document.getElementById("monthTxCount"),
   tableBody: document.querySelector("#transactionsTable tbody"),
   recurringList: document.getElementById("recurringList"),
   metricTotal: document.getElementById("metricTotal"),
@@ -50,6 +57,7 @@ const els = {
 
 function init() {
   state.transactions = loadTransactions().sort(compareTransactionOrder);
+  state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
   refreshDerivedData();
   bindEvents();
@@ -87,6 +95,14 @@ function handleImportClick() {
     }
 
     upsertTransactions(imported);
+    const importedMonthKeys = imported
+      .map((tx) => getMonthKeyFromDate(tx.date))
+      .filter(Boolean)
+      .sort();
+    if (importedMonthKeys.length) {
+      state.selectedMonthKey = importedMonthKeys[importedMonthKeys.length - 1];
+      persistSelectedMonth();
+    }
     refreshDerivedData();
     persist();
     render();
@@ -100,6 +116,8 @@ function handleClear() {
   }
   state.transactions = [];
   state.recurring = [];
+  state.selectedMonthKey = null;
+  persistSelectedMonth();
   persist();
   render();
 }
@@ -147,9 +165,11 @@ function splitCSVLine(line) {
 function normalizeTransaction(row) {
   const dateValue = row.date || row.posted || row.transaction_date;
   const description = row.description || row.memo || row.vendor || "";
-  const amountValue = row.amount || row.debit || row.value;
+  const debitValue = row.debit || row.withdrawal || row.charge || "";
+  const creditValue = row.credit || row.deposit || "";
+  const amountValue = row.amount || row.value || "";
 
-  if (!dateValue || !description || !amountValue) {
+  if (!dateValue || !description || (!debitValue && !creditValue && !amountValue)) {
     return null;
   }
 
@@ -158,8 +178,20 @@ function normalizeTransaction(row) {
     return null;
   }
 
-  const amount = Math.abs(Number(String(amountValue).replace(/[^0-9.-]/g, "")));
-  if (Number.isNaN(amount)) {
+  const parsedDebit = parseAmount(debitValue);
+  const parsedCredit = parseAmount(creditValue);
+  const parsedAmount = parseAmount(amountValue);
+
+  let amount = null;
+  if (parsedDebit !== null) {
+    amount = Math.abs(parsedDebit);
+  } else if (parsedCredit !== null) {
+    amount = -Math.abs(parsedCredit);
+  } else if (parsedAmount !== null) {
+    amount = parsedAmount;
+  }
+
+  if (amount === null) {
     return null;
   }
 
@@ -178,6 +210,16 @@ function normalizeTransaction(row) {
     partnerSplitPct: clamp(splitPct, 0, 100),
     status: confidence >= 0.8 ? "clean" : "needs-review"
   };
+}
+
+function parseAmount(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const numeric = Number(raw.replace(/[^0-9.-]/g, ""));
+  return Number.isNaN(numeric) ? null : numeric;
 }
 
 function buildTransactionId(date, description, amount) {
@@ -299,7 +341,8 @@ function detectRecurring(transactions) {
 
     const sorted = items.slice().sort((a, b) => a.date.localeCompare(b.date));
     const avgAmount = sorted.reduce((sum, t) => sum + t.amount, 0) / sorted.length;
-    const allNearAmount = sorted.every((t) => Math.abs(t.amount - avgAmount) / avgAmount < 0.2);
+    const denominator = Math.max(Math.abs(avgAmount), 0.01);
+    const allNearAmount = sorted.every((t) => Math.abs(t.amount - avgAmount) / denominator < 0.2);
 
     if (!allNearAmount) {
       return;
@@ -345,6 +388,14 @@ function persistApiUrl() {
   localStorage.setItem(API_URL_KEY, els.apiUrlInput.value.trim());
 }
 
+function persistSelectedMonth() {
+  if (!state.selectedMonthKey) {
+    localStorage.removeItem(SELECTED_MONTH_KEY);
+    return;
+  }
+  localStorage.setItem(SELECTED_MONTH_KEY, state.selectedMonthKey);
+}
+
 function loadTransactions() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -363,12 +414,13 @@ function loadTransactions() {
 
 function render() {
   renderMetrics();
+  renderMonthPanel();
   renderTransactions();
   renderRecurring();
 }
 
 function renderMetrics() {
-  const total = state.transactions.reduce((sum, t) => sum + t.amount, 0);
+  const total = state.transactions.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0);
   const needsReview = state.transactions.filter((t) => t.status === "needs-review").length;
 
   els.metricTotal.textContent = formatCurrency(total);
@@ -377,11 +429,111 @@ function renderMetrics() {
   els.metricRecurring.textContent = String(state.recurring.length);
 }
 
+function renderMonthPanel() {
+  const summaries = buildMonthSummaries(state.transactions);
+
+  if (state.selectedMonthKey && !summaries.some((s) => s.key === state.selectedMonthKey)) {
+    state.selectedMonthKey = null;
+    persistSelectedMonth();
+  }
+
+  els.monthBadgeRow.innerHTML = "";
+
+  const allSummary = summaries.reduce(
+    (acc, item) => ({
+      count: acc.count + item.count,
+      expenses: acc.expenses + item.expenses,
+      credits: acc.credits + item.credits
+    }),
+    { count: 0, expenses: 0, credits: 0 }
+  );
+
+  const allBtn = document.createElement("button");
+  allBtn.className = `month-badge ${state.selectedMonthKey ? "" : "active"}`.trim();
+  allBtn.innerHTML = `<span class="month-name">All Months</span><span class="month-meta">${allSummary.count} tx</span>`;
+  allBtn.addEventListener("click", () => {
+    state.selectedMonthKey = null;
+    persistSelectedMonth();
+    render();
+  });
+  els.monthBadgeRow.appendChild(allBtn);
+
+  summaries.forEach((summary) => {
+    const btn = document.createElement("button");
+    btn.className = `month-badge ${state.selectedMonthKey === summary.key ? "active" : ""}`.trim();
+    btn.innerHTML = `<span class="month-name">${escapeHtml(summary.label)}</span><span class="month-meta">${summary.count} tx</span>`;
+    btn.addEventListener("click", () => {
+      state.selectedMonthKey = summary.key;
+      persistSelectedMonth();
+      render();
+    });
+    els.monthBadgeRow.appendChild(btn);
+  });
+
+  const activeSummary = state.selectedMonthKey
+    ? summaries.find((item) => item.key === state.selectedMonthKey) || allSummary
+    : allSummary;
+
+  const selectedLabel = state.selectedMonthKey
+    ? summaries.find((item) => item.key === state.selectedMonthKey)?.label || "All Months"
+    : "All Months";
+
+  els.monthSelectedLabel.textContent = selectedLabel;
+  els.monthExpenseTotal.textContent = formatCurrency(activeSummary.expenses || 0);
+  els.monthCreditTotal.textContent = formatCurrency(activeSummary.credits || 0);
+  els.monthTxCount.textContent = String(activeSummary.count || 0);
+}
+
+function buildMonthSummaries(transactions) {
+  const monthMap = new Map();
+
+  transactions.forEach((t) => {
+    const key = getMonthKeyFromDate(t.date);
+    if (!key) {
+      return;
+    }
+
+    if (!monthMap.has(key)) {
+      monthMap.set(key, {
+        key,
+        label: formatMonthKeyLabel(key),
+        count: 0,
+        expenses: 0,
+        credits: 0
+      });
+    }
+
+    const summary = monthMap.get(key);
+    summary.count += 1;
+
+    const amount = Number(t.amount) || 0;
+    if (amount < 0) {
+      summary.credits += Math.abs(amount);
+    } else {
+      summary.expenses += amount;
+    }
+  });
+
+  return Array.from(monthMap.values()).sort((a, b) => b.key.localeCompare(a.key));
+}
+
+function getMonthKeyFromDate(value) {
+  const iso = parseDateToISO(value);
+  return iso ? iso.slice(0, 7) : null;
+}
+
+function formatMonthKeyLabel(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, 1));
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 function renderTransactions() {
   const filterText = els.searchInput.value.trim().toLowerCase();
   const reviewFilter = els.reviewFilter.value;
   const dateFrom = els.dateFromInput.value;
   const dateTo = els.dateToInput.value;
+  const selectedMonthKey = state.selectedMonthKey;
 
   const filtered = state.transactions.filter((t) => {
     const matchesText =
@@ -397,8 +549,9 @@ function renderTransactions() {
     const txDate = parseDateToISO(t.date);
     const matchesDateFrom = !dateFrom || (txDate && txDate >= dateFrom);
     const matchesDateTo = !dateTo || (txDate && txDate <= dateTo);
+    const matchesMonth = !selectedMonthKey || getMonthKeyFromDate(t.date) === selectedMonthKey;
 
-    return matchesText && matchesReview && matchesDateFrom && matchesDateTo;
+    return matchesText && matchesReview && matchesDateFrom && matchesDateTo && matchesMonth;
   });
 
   filtered.sort(compareTransactionOrder);
@@ -585,10 +738,10 @@ async function pullFromApi() {
 
     const rows = await res.json();
     const imported = rows.map((row) => ({
-      id: buildTransactionId(row.tx_date, row.description, Math.abs(Number(row.amount_cents) / 100)),
+      id: buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100),
       date: formatDate(row.tx_date),
       description: String(row.description || ""),
-      amount: Math.abs(Number(row.amount_cents) / 100),
+      amount: Number(row.amount_cents) / 100,
       category: String(row.category || "Uncategorized"),
       partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
       status: row.category && row.category !== "Uncategorized" ? "clean" : "needs-review"
