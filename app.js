@@ -12,7 +12,7 @@ const CATEGORY_OPTIONS = [
   "Oracall AI",
   "Go High Level",
   "Instantly",
-  "Thinker",
+  "Thinkrr",
   "Twilio",
   "ElevenLabs",
   "Claude",
@@ -25,6 +25,7 @@ const CREDIT_CATEGORIES = new Set(["Credit", "Giles Credit", "Misc Credit"]);
 const CATEGORY_ALIASES = {
   "credit giles": "Giles Credit",
   "giles credit": "Giles Credit",
+  thinker: "Thinkrr",
   misc: "Misc Debit",
   miscellaneous: "Misc Debit"
 };
@@ -37,7 +38,7 @@ const CATEGORY_RULES = [
   { keyword: "go high level", category: "Go High Level" },
   { keyword: "gohighlevel", category: "Go High Level" },
   { keyword: "instantly", category: "Instantly" },
-  { keyword: "thinker", category: "Thinker" },
+  { keyword: "thinker", category: "Thinkrr" },
   { keyword: "twilio", category: "Twilio" },
   { keyword: "elevenlabs", category: "ElevenLabs" },
   { keyword: "claude", category: "Claude" },
