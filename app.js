@@ -213,8 +213,9 @@ function initControlsPanel() {
 }
 
 function initSectionPanels() {
+  const defaultOpenLabels = new Set(["monthly imports", "insights"]);
   getSectionPanels().forEach((panel) => {
-    setSectionPanelOpen(panel, false);
+    setSectionPanelOpen(panel, defaultOpenLabels.has(panel.label));
   });
 }
 
