@@ -8,8 +8,13 @@
   </head>
   <body>
     <header class="app-header">
-      <h1>Private Business Finance OS</h1>
-      <p>Import statements, review tags, apply partner splits.</p>
+      <div>
+        <h1>Private Business Finance OS</h1>
+        <p>Import statements, review tags, apply partner splits.</p>
+      </div>
+      <a class="launcher-link" href="https://client-onboarding-fulfillment-saas-1771656638.vercel.app/">
+        Back to App Launcher
+      </a>
     </header>
 
     <main class="layout">
@@ -23,7 +28,7 @@
             aria-expanded="true"
             aria-controls="controlsContent"
           >
-            <span id="controlsToggleIcon">▾</span>
+            <span id="controlsToggleIcon" class="panel-toggle-icon">▾</span>
           </button>
         </div>
 
@@ -63,164 +68,255 @@
       </section>
 
       <section class="card metrics">
-        <h2>Dashboard</h2>
-        <div class="metric-grid">
-          <article><span id="metricTotal">$0.00</span><small>Total Spend</small></article>
-          <article><span id="metricCount">0</span><small>Transactions</small></article>
-          <article><span id="metricNeedsReview">0</span><small>Needs Review</small></article>
-          <article><span id="metricRecurring">0</span><small>Recurring Candidates</small></article>
+        <div class="card-collapse-head">
+          <h2>Dashboard</h2>
+          <button
+            id="metricsToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="metricsContent"
+          >
+            <span id="metricsToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="metricsContent" class="collapsible-content is-collapsed">
+          <div class="metric-grid">
+            <article><span id="metricTotal">$0.00</span><small>Total Spend</small></article>
+            <article><span id="metricCount">0</span><small>Transactions</small></article>
+            <article><span id="metricNeedsReview">0</span><small>Needs Review</small></article>
+            <article><span id="metricRecurring">0</span><small>Recurring Candidates</small></article>
+          </div>
         </div>
       </section>
 
       <section class="card month-panel">
-        <h2>Monthly Imports</h2>
-        <p class="hint">
-          Each badge is a labeled CSV import month. Click to review that month only.
-          Use <code>x</code> to remove the month label while keeping transactions under All Months.
-        </p>
-        <div id="monthBadgeRow" class="month-badges"></div>
-        <div class="month-summary">
-          <article><span id="monthSelectedLabel">All Months</span><small>Selected Month</small></article>
-          <article><span id="monthExpenseTotal">$0.00</span><small>Total Expenses</small></article>
-          <article><span id="monthCreditTotal">$0.00</span><small>Total Credits</small></article>
-          <article><span id="monthTxCount">0</span><small>Transactions</small></article>
+        <div class="card-collapse-head">
+          <h2>Monthly Imports</h2>
+          <button
+            id="monthPanelToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="monthPanelContent"
+          >
+            <span id="monthPanelToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="monthPanelContent" class="collapsible-content is-collapsed">
+          <p class="hint">
+            Each badge is a labeled CSV import month. Click to review that month only.
+            Use <code>x</code> to remove the month label while keeping transactions under All Months.
+          </p>
+          <div id="monthBadgeRow" class="month-badges"></div>
+          <div class="month-summary">
+            <article><span id="monthSelectedLabel">All Months</span><small>Selected Month</small></article>
+            <article><span id="monthExpenseTotal">$0.00</span><small>Total Expenses</small></article>
+            <article><span id="monthCreditTotal">$0.00</span><small>Total Credits</small></article>
+            <article><span id="monthTxCount">0</span><small>Transactions</small></article>
+          </div>
         </div>
       </section>
 
       <section class="card insights-panel">
-        <h2>Insights</h2>
-        <p class="hint">Focused analytics for month-close quality, partner split outcomes, and vendor concentration.</p>
-        <div class="insights-grid">
-          <article class="insight-card">
-            <small class="insight-kicker">Month Close Hub</small>
-            <h3 id="insightScopeLabel">All Months</h3>
-            <div class="insight-main">
-              <span id="closeScore">100</span>
-              <small id="closeStatus">Ready to close</small>
-            </div>
-            <div class="insight-stats">
-              <span><strong id="closeUncategorized">0</strong> uncategorized</span>
-              <span><strong id="closeNeedsReview">0</strong> needs review</span>
-              <span><strong id="closeMissingSplit">0</strong> missing split</span>
-            </div>
-          </article>
+        <div class="card-collapse-head">
+          <h2>Insights</h2>
+          <button
+            id="insightsToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="insightsContent"
+          >
+            <span id="insightsToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="insightsContent" class="collapsible-content is-collapsed">
+          <p class="hint">Focused analytics for month-close quality, partner split outcomes, and vendor concentration.</p>
+          <div class="insights-grid">
+            <article class="insight-card">
+              <small class="insight-kicker">Month Close Hub</small>
+              <h3 id="insightScopeLabel">All Months</h3>
+              <div class="insight-main">
+                <span id="closeScore">100</span>
+                <small id="closeStatus">Ready to close</small>
+              </div>
+              <div class="insight-stats">
+                <span><strong id="closeUncategorized">0</strong> uncategorized</span>
+                <span><strong id="closeNeedsReview">0</strong> needs review</span>
+                <span><strong id="closeMissingSplit">0</strong> missing split</span>
+              </div>
+            </article>
 
-          <article class="insight-card">
-            <small class="insight-kicker">Partner Split Overview</small>
-            <h3>Allocation Summary</h3>
-            <div class="insight-dual-metrics">
-              <div><span id="partnerShareAmount">$0.00</span><small>Partner Allocation (Net)</small></div>
-              <div><span id="businessShareAmount">$0.00</span><small>Business Allocation (Net)</small></div>
-            </div>
-            <div class="insight-stats">
-              <span><strong id="partnerSplitRatio">50%</strong> partner share ratio</span>
-              <span><strong id="partnerExpenseTotal">$0.00</strong> expense base</span>
-              <span><strong id="partnerCreditTotal">$0.00</strong> credits applied</span>
-            </div>
-          </article>
+            <article class="insight-card">
+              <small class="insight-kicker">Partner Split Overview</small>
+              <h3>Allocation Summary</h3>
+              <div class="insight-dual-metrics">
+                <div><span id="partnerShareAmount">$0.00</span><small>Partner Allocation (Net)</small></div>
+                <div><span id="businessShareAmount">$0.00</span><small>Business Allocation (Net)</small></div>
+              </div>
+              <div class="insight-stats">
+                <span><strong id="partnerSplitRatio">50%</strong> partner share ratio</span>
+                <span><strong id="partnerExpenseTotal">$0.00</strong> expense base</span>
+                <span><strong id="partnerCreditTotal">$0.00</strong> credits applied</span>
+              </div>
+            </article>
 
-          <article class="insight-card">
-            <small class="insight-kicker">Category Concentration</small>
-            <h3>Top 5 Categories</h3>
-            <div class="insight-main">
-              <span id="vendorConcentrationPercent">0%</span>
-              <small>of expense base in top categories</small>
-            </div>
-            <ul id="vendorTopList" class="list compact-list"></ul>
-            <div class="insight-footer">Expense Base Total: <strong id="vendorExpenseBaseTotal">$0.00</strong></div>
-            <div class="insight-footer">Top-5 Category Total: <strong id="vendorTopTotal">$0.00</strong></div>
-          </article>
+            <article class="insight-card">
+              <small class="insight-kicker">Category Concentration</small>
+              <h3>Top 5 Categories</h3>
+              <div class="insight-main">
+                <span id="vendorConcentrationPercent">0%</span>
+                <small>of expense base in top categories</small>
+              </div>
+              <ul id="vendorTopList" class="list compact-list"></ul>
+              <div class="insight-footer">Expense Base Total: <strong id="vendorExpenseBaseTotal">$0.00</strong></div>
+              <div class="insight-footer">Top-5 Category Total: <strong id="vendorTopTotal">$0.00</strong></div>
+            </article>
+          </div>
         </div>
       </section>
 
       <section class="card notes-panel">
-        <h2>Reconciliation Notes</h2>
-        <p class="hint">
-          Save month-specific notes while reconciling. Current scope:
-          <strong id="reconNoteScopeLabel">All Months</strong>
-        </p>
-        <textarea
-          id="reconNoteInput"
-          rows="4"
-          placeholder="Example: On personal card, Giles paid for this item. Follow up next month."
-        ></textarea>
-        <div class="notes-footer">
-          <button id="saveReconNoteBtn" class="secondary" type="button">Save Note</button>
-          <small id="reconNoteStatus">No note yet</small>
+        <div class="card-collapse-head">
+          <h2>Reconciliation Notes</h2>
+          <button
+            id="notesToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="notesContent"
+          >
+            <span id="notesToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="notesContent" class="collapsible-content is-collapsed">
+          <p class="hint">
+            Save month-specific notes while reconciling. Current scope:
+            <strong id="reconNoteScopeLabel">All Months</strong>
+          </p>
+          <textarea
+            id="reconNoteInput"
+            rows="4"
+            placeholder="Example: On personal card, Giles paid for this item. Follow up next month."
+          ></textarea>
+          <div class="notes-footer">
+            <button id="saveReconNoteBtn" class="secondary" type="button">Save Note</button>
+            <small id="reconNoteStatus">No note yet</small>
+          </div>
         </div>
       </section>
 
       <section class="card transactions-panel">
-        <h2>Transactions</h2>
-        <div class="filters">
-          <label>
-            Search
-            <input id="searchInput" type="text" placeholder="merchant, category..." />
-          </label>
-          <label>
-            Review
-            <select id="reviewFilter">
-              <option value="all">All</option>
-              <option value="needs-review">Needs Review</option>
-              <option value="clean">Clean</option>
-            </select>
-          </label>
-          <label>
-            From
-            <input id="dateFromInput" type="date" />
-          </label>
-          <label>
-            To
-            <input id="dateToInput" type="date" />
-          </label>
+        <div class="card-collapse-head">
+          <h2>Transactions</h2>
+          <button
+            id="transactionsToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="transactionsContent"
+          >
+            <span id="transactionsToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
         </div>
-        <div class="table-wrap">
-          <table id="transactionsTable">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Amount</th>
-                <th>Category</th>
-                <th>Partner %</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div id="transactionsContent" class="collapsible-content is-collapsed">
+          <div class="filters">
+            <label>
+              Search
+              <input id="searchInput" type="text" placeholder="merchant, category..." />
+            </label>
+            <label>
+              Review
+              <select id="reviewFilter">
+                <option value="all">All</option>
+                <option value="needs-review">Needs Review</option>
+                <option value="clean">Clean</option>
+              </select>
+            </label>
+            <label>
+              From
+              <input id="dateFromInput" type="date" />
+            </label>
+            <label>
+              To
+              <input id="dateToInput" type="date" />
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table id="transactionsTable">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Category</th>
+                  <th>Partner %</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <section class="card recurring-panel">
-        <h2>Recurring Candidates</h2>
-        <p class="hint">Detected from repeated merchant + near-monthly cadence.</p>
-        <ul id="recurringList" class="list"></ul>
+        <div class="card-collapse-head">
+          <h2>Recurring Candidates</h2>
+          <button
+            id="recurringToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="recurringContent"
+          >
+            <span id="recurringToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="recurringContent" class="collapsible-content is-collapsed">
+          <p class="hint">Detected from repeated merchant + near-monthly cadence.</p>
+          <ul id="recurringList" class="list"></ul>
+        </div>
       </section>
 
       <section class="card initial-recon-panel">
-        <h2>Initial Full Reconciliation</h2>
-        <p class="hint">
-          June 2025 to February 2026 baseline upload. Use this for your initial cross-month reconciliation file.
-        </p>
-        <div class="initial-recon-controls">
-          <label>
-            Initial Reconciliation File
-            <input id="initialReconFileInput" type="file" accept=".xlsx,.xls,.csv" />
-          </label>
-          <div class="button-row">
-            <button id="uploadInitialReconBtn" type="button">Upload Initial Reconciliation</button>
-            <button id="clearInitialReconBtn" class="secondary" type="button">Clear Initial Data</button>
+        <div class="card-collapse-head">
+          <h2>Initial Full Reconciliation</h2>
+          <button
+            id="initialReconToggleBtn"
+            class="panel-toggle-btn collapsed"
+            type="button"
+            aria-expanded="false"
+            aria-controls="initialReconContent"
+          >
+            <span id="initialReconToggleIcon" class="panel-toggle-icon">▸</span>
+          </button>
+        </div>
+        <div id="initialReconContent" class="collapsible-content is-collapsed">
+          <p class="hint">
+            June 2025 to February 2026 baseline upload. Use this for your initial cross-month reconciliation file.
+          </p>
+          <div class="initial-recon-controls">
+            <label>
+              Initial Reconciliation File
+              <input id="initialReconFileInput" type="file" accept=".xlsx,.xls,.csv" />
+            </label>
+            <div class="button-row">
+              <button id="uploadInitialReconBtn" type="button">Upload Initial Reconciliation</button>
+              <button id="clearInitialReconBtn" class="secondary" type="button">Clear Initial Data</button>
+            </div>
           </div>
+          <div class="metric-grid initial-recon-metrics">
+            <article><span id="initialReconLoadedRows">0</span><small>Rows Loaded</small></article>
+            <article><span id="initialReconInRangeRows">0</span><small>Rows In Scope (Jun 2025-Feb 2026)</small></article>
+            <article><span id="initialReconExpenseTotal">$0.00</span><small>Total Expenses</small></article>
+            <article><span id="initialReconCreditTotal">$0.00</span><small>Total Credits</small></article>
+            <article><span id="initialReconPartnerTotal">$0.00</span><small>Partner Allocation</small></article>
+            <article><span id="initialReconBusinessTotal">$0.00</span><small>Business Allocation</small></article>
+          </div>
+          <ul id="initialReconMessages" class="list compact-list"></ul>
         </div>
-        <div class="metric-grid initial-recon-metrics">
-          <article><span id="initialReconLoadedRows">0</span><small>Rows Loaded</small></article>
-          <article><span id="initialReconInRangeRows">0</span><small>Rows In Scope (Jun 2025-Feb 2026)</small></article>
-          <article><span id="initialReconExpenseTotal">$0.00</span><small>Total Expenses</small></article>
-          <article><span id="initialReconCreditTotal">$0.00</span><small>Total Credits</small></article>
-          <article><span id="initialReconPartnerTotal">$0.00</span><small>Partner Allocation</small></article>
-          <article><span id="initialReconBusinessTotal">$0.00</span><small>Business Allocation</small></article>
-        </div>
-        <ul id="initialReconMessages" class="list compact-list"></ul>
       </section>
     </main>
 

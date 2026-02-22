@@ -74,6 +74,27 @@ const els = {
   controlsToggleBtn: document.getElementById("controlsToggleBtn"),
   controlsContent: document.getElementById("controlsContent"),
   controlsToggleIcon: document.getElementById("controlsToggleIcon"),
+  metricsToggleBtn: document.getElementById("metricsToggleBtn"),
+  metricsContent: document.getElementById("metricsContent"),
+  metricsToggleIcon: document.getElementById("metricsToggleIcon"),
+  monthPanelToggleBtn: document.getElementById("monthPanelToggleBtn"),
+  monthPanelContent: document.getElementById("monthPanelContent"),
+  monthPanelToggleIcon: document.getElementById("monthPanelToggleIcon"),
+  insightsToggleBtn: document.getElementById("insightsToggleBtn"),
+  insightsContent: document.getElementById("insightsContent"),
+  insightsToggleIcon: document.getElementById("insightsToggleIcon"),
+  notesToggleBtn: document.getElementById("notesToggleBtn"),
+  notesContent: document.getElementById("notesContent"),
+  notesToggleIcon: document.getElementById("notesToggleIcon"),
+  transactionsToggleBtn: document.getElementById("transactionsToggleBtn"),
+  transactionsContent: document.getElementById("transactionsContent"),
+  transactionsToggleIcon: document.getElementById("transactionsToggleIcon"),
+  recurringToggleBtn: document.getElementById("recurringToggleBtn"),
+  recurringContent: document.getElementById("recurringContent"),
+  recurringToggleIcon: document.getElementById("recurringToggleIcon"),
+  initialReconToggleBtn: document.getElementById("initialReconToggleBtn"),
+  initialReconContent: document.getElementById("initialReconContent"),
+  initialReconToggleIcon: document.getElementById("initialReconToggleIcon"),
   importMonthInput: document.getElementById("importMonthInput"),
   importMiscBtn: document.getElementById("importMiscBtn"),
   importBtn: document.getElementById("importBtn"),
@@ -135,6 +156,7 @@ function init() {
   state.initialReconciliation = loadStoredArray(INITIAL_RECON_KEY);
   state.initialReconciliationMeta = loadStoredObject(INITIAL_RECON_META_KEY, null);
   initControlsPanel();
+  initSectionPanels();
   els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
   refreshDerivedData();
@@ -146,6 +168,17 @@ function bindEvents() {
   if (els.controlsToggleBtn) {
     els.controlsToggleBtn.addEventListener("click", toggleControlsPanel);
   }
+
+  getSectionPanels().forEach((panel) => {
+    if (!panel.toggleBtn || !panel.content) {
+      return;
+    }
+
+    panel.toggleBtn.addEventListener("click", () => {
+      toggleSectionPanel(panel);
+    });
+  });
+
   els.importBtn.addEventListener("click", handleImportClick);
   if (els.importMiscBtn) {
     els.importMiscBtn.addEventListener("click", handleMiscImportClick);
@@ -177,6 +210,82 @@ function initControlsPanel() {
   const raw = localStorage.getItem(CONTROLS_OPEN_KEY);
   const isOpen = raw === null ? true : raw === "1";
   setControlsPanelOpen(isOpen);
+}
+
+function initSectionPanels() {
+  getSectionPanels().forEach((panel) => {
+    setSectionPanelOpen(panel, false);
+  });
+}
+
+function getSectionPanels() {
+  return [
+    {
+      toggleBtn: els.metricsToggleBtn,
+      content: els.metricsContent,
+      icon: els.metricsToggleIcon,
+      label: "dashboard"
+    },
+    {
+      toggleBtn: els.monthPanelToggleBtn,
+      content: els.monthPanelContent,
+      icon: els.monthPanelToggleIcon,
+      label: "monthly imports"
+    },
+    {
+      toggleBtn: els.insightsToggleBtn,
+      content: els.insightsContent,
+      icon: els.insightsToggleIcon,
+      label: "insights"
+    },
+    {
+      toggleBtn: els.notesToggleBtn,
+      content: els.notesContent,
+      icon: els.notesToggleIcon,
+      label: "reconciliation notes"
+    },
+    {
+      toggleBtn: els.transactionsToggleBtn,
+      content: els.transactionsContent,
+      icon: els.transactionsToggleIcon,
+      label: "transactions"
+    },
+    {
+      toggleBtn: els.recurringToggleBtn,
+      content: els.recurringContent,
+      icon: els.recurringToggleIcon,
+      label: "recurring candidates"
+    },
+    {
+      toggleBtn: els.initialReconToggleBtn,
+      content: els.initialReconContent,
+      icon: els.initialReconToggleIcon,
+      label: "initial full reconciliation"
+    }
+  ];
+}
+
+function toggleSectionPanel(panel) {
+  const isOpen = !panel.content.classList.contains("is-collapsed");
+  setSectionPanelOpen(panel, !isOpen);
+}
+
+function setSectionPanelOpen(panel, isOpen) {
+  if (!panel.toggleBtn || !panel.content) {
+    return;
+  }
+
+  panel.content.classList.toggle("is-collapsed", !isOpen);
+  panel.toggleBtn.classList.toggle("collapsed", !isOpen);
+  panel.toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+
+  if (panel.icon) {
+    panel.icon.textContent = isOpen ? "▾" : "▸";
+  }
+
+  if (panel.label) {
+    panel.toggleBtn.setAttribute("title", `${isOpen ? "Collapse" : "Expand"} ${panel.label}`);
+  }
 }
 
 function toggleControlsPanel() {
