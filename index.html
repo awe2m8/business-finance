@@ -200,6 +200,21 @@
             rows="4"
             placeholder="Example: On personal card, Giles paid for this item. Follow up next month."
           ></textarea>
+          <div class="recon-status-row">
+            <label class="recon-status-field">
+              Reconciliation Status
+              <select id="reconStatusInput">
+                <option value="pending">Pending</option>
+                <option value="waiting-giles">Waiting for Giles</option>
+                <option value="waiting-jesse">Waiting for Jesse</option>
+                <option value="reconciled">Complete (Reconciled)</option>
+              </select>
+            </label>
+            <div class="recon-status-meta">
+              <span id="reconStatusBadge" class="recon-status-pill recon-status-pending">Pending</span>
+              <small id="reconStatusGuidance">Action: Keep categorizing and split-checking before sign-off.</small>
+            </div>
+          </div>
           <div class="notes-footer">
             <button id="saveReconNoteBtn" class="secondary" type="button">Save Note</button>
             <small id="reconNoteStatus">No note yet</small>

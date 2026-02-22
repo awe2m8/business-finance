@@ -492,6 +492,70 @@ button.panel-toggle-btn:hover {
   background: #fff;
 }
 
+.recon-status-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.recon-status-field {
+  display: grid;
+  gap: 4px;
+}
+
+.recon-status-field select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+  background: #fff;
+  min-width: 0;
+}
+
+.recon-status-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recon-status-meta small {
+  color: var(--muted);
+}
+
+.recon-status-pill {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.recon-status-pending {
+  background: #fff8dc;
+  border-color: #f4cf66;
+  color: #7c5a00;
+}
+
+.recon-status-waiting-giles {
+  background: #fff2e6;
+  border-color: #f2ba77;
+  color: #8a4f12;
+}
+
+.recon-status-waiting-jesse {
+  background: #eaf7f5;
+  border-color: #7fc7b8;
+  color: #0b6855;
+}
+
+.recon-status-reconciled {
+  background: #e6f8ef;
+  border-color: #89d7ad;
+  color: #176946;
+}
+
 .notes-footer {
   margin-top: 8px;
   display: flex;
@@ -668,6 +732,10 @@ td select {
   }
 
   .insight-dual-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .recon-status-row {
     grid-template-columns: 1fr;
   }
 }

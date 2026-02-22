@@ -3,6 +3,7 @@ const API_URL_KEY = "finance_os_api_url_v1";
 const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 const CONTROLS_OPEN_KEY = "finance_os_controls_open_v1";
 const RECON_NOTES_KEY = "finance_os_reconciliation_notes_v1";
+const RECON_STATUS_KEY = "finance_os_reconciliation_status_v1";
 const INITIAL_RECON_KEY = "finance_os_initial_reconciliation_v1";
 const INITIAL_RECON_META_KEY = "finance_os_initial_reconciliation_meta_v1";
 const INITIAL_RECON_RANGE_START = "2025-06-01";
@@ -58,12 +59,40 @@ const CATEGORY_RULES = [
 ];
 
 const DEFAULT_SPLITS = Object.fromEntries(CATEGORY_OPTIONS.map((category) => [category, 50]));
+const RECON_STATUS_OPTIONS = [
+  {
+    value: "pending",
+    label: "Pending",
+    toneClass: "recon-status-pending",
+    guidance: "Action: Keep categorizing and split-checking before sign-off."
+  },
+  {
+    value: "waiting-giles",
+    label: "Waiting for Giles",
+    toneClass: "recon-status-waiting-giles",
+    guidance: "Action: Waiting on Giles input or reimbursement details."
+  },
+  {
+    value: "waiting-jesse",
+    label: "Waiting for Jesse",
+    toneClass: "recon-status-waiting-jesse",
+    guidance: "Action: Waiting on Jesse input or reimbursement details."
+  },
+  {
+    value: "reconciled",
+    label: "Complete (Reconciled)",
+    toneClass: "recon-status-reconciled",
+    guidance: "Action: Scope is reconciled and ready for sign-off."
+  }
+];
+const RECON_STATUS_LOOKUP = Object.fromEntries(RECON_STATUS_OPTIONS.map((item) => [item.value, item]));
 
 const state = {
   transactions: [],
   recurring: [],
   selectedMonthKey: null,
   reconciliationNotes: {},
+  reconciliationStatuses: {},
   activeNoteScopeKey: null,
   initialReconciliation: [],
   initialReconciliationMeta: null
@@ -135,6 +164,9 @@ const els = {
   vendorTopTotal: document.getElementById("vendorTopTotal"),
   reconNoteScopeLabel: document.getElementById("reconNoteScopeLabel"),
   reconNoteInput: document.getElementById("reconNoteInput"),
+  reconStatusInput: document.getElementById("reconStatusInput"),
+  reconStatusBadge: document.getElementById("reconStatusBadge"),
+  reconStatusGuidance: document.getElementById("reconStatusGuidance"),
   saveReconNoteBtn: document.getElementById("saveReconNoteBtn"),
   reconNoteStatus: document.getElementById("reconNoteStatus"),
   initialReconFileInput: document.getElementById("initialReconFileInput"),
@@ -153,6 +185,7 @@ function init() {
   state.transactions = normalizeStoredTransactions(loadTransactions()).sort(compareTransactionOrder);
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
   state.reconciliationNotes = loadStoredObject(RECON_NOTES_KEY, {});
+  state.reconciliationStatuses = loadStoredObject(RECON_STATUS_KEY, {});
   state.initialReconciliation = loadStoredArray(INITIAL_RECON_KEY);
   state.initialReconciliationMeta = loadStoredObject(INITIAL_RECON_META_KEY, null);
   initControlsPanel();
@@ -192,6 +225,9 @@ function bindEvents() {
   }
   if (els.reconNoteInput) {
     els.reconNoteInput.addEventListener("input", handleReconNoteInput);
+  }
+  if (els.reconStatusInput) {
+    els.reconStatusInput.addEventListener("change", handleReconStatusChange);
   }
   if (els.uploadInitialReconBtn) {
     els.uploadInitialReconBtn.addEventListener("click", handleUploadInitialReconClick);
@@ -805,6 +841,10 @@ function persistReconciliationNotes() {
   localStorage.setItem(RECON_NOTES_KEY, JSON.stringify(state.reconciliationNotes || {}));
 }
 
+function persistReconciliationStatuses() {
+  localStorage.setItem(RECON_STATUS_KEY, JSON.stringify(state.reconciliationStatuses || {}));
+}
+
 function persistInitialReconciliation() {
   localStorage.setItem(INITIAL_RECON_KEY, JSON.stringify(state.initialReconciliation || []));
   localStorage.setItem(INITIAL_RECON_META_KEY, JSON.stringify(state.initialReconciliationMeta || null));
@@ -849,6 +889,47 @@ function getReconNoteScopeLabel() {
   return state.selectedMonthKey ? formatMonthKeyLabel(state.selectedMonthKey) : "All Months";
 }
 
+function normalizeReconStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (RECON_STATUS_LOOKUP[normalized]) {
+    return normalized;
+  }
+  return "pending";
+}
+
+function getReconStatusForScope(scopeKey) {
+  const raw = state.reconciliationStatuses?.[scopeKey];
+  if (typeof raw === "string") {
+    return normalizeReconStatus(raw);
+  }
+  if (raw && typeof raw === "object") {
+    return normalizeReconStatus(raw.value);
+  }
+  return "pending";
+}
+
+function setReconStatusForScope(scopeKey, nextStatus) {
+  const value = normalizeReconStatus(nextStatus);
+  state.reconciliationStatuses[scopeKey] = {
+    value,
+    updatedAt: new Date().toISOString()
+  };
+  persistReconciliationStatuses();
+}
+
+function renderReconStatus(scopeKey) {
+  if (!els.reconStatusInput || !els.reconStatusBadge || !els.reconStatusGuidance) {
+    return;
+  }
+
+  const statusValue = getReconStatusForScope(scopeKey);
+  const statusMeta = RECON_STATUS_LOOKUP[statusValue] || RECON_STATUS_LOOKUP.pending;
+  els.reconStatusInput.value = statusValue;
+  els.reconStatusBadge.textContent = statusMeta.label;
+  els.reconStatusBadge.className = `recon-status-pill ${statusMeta.toneClass}`;
+  els.reconStatusGuidance.textContent = statusMeta.guidance;
+}
+
 function renderReconciliationNotes() {
   if (!els.reconNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
     return;
@@ -865,6 +946,7 @@ function renderReconciliationNotes() {
 
   const noteValue = String(state.reconciliationNotes[scopeKey] || "");
   els.reconNoteStatus.textContent = noteValue ? "Saved for this scope" : "No note yet";
+  renderReconStatus(scopeKey);
 }
 
 function handleReconNoteInput(event) {
@@ -890,9 +972,19 @@ function handleSaveReconNoteClick() {
     delete state.reconciliationNotes[scopeKey];
   }
   persistReconciliationNotes();
+  if (els.reconStatusInput) {
+    setReconStatusForScope(scopeKey, els.reconStatusInput.value);
+  }
   if (els.reconNoteStatus) {
     els.reconNoteStatus.textContent = value.trim() ? "Saved for this scope" : "No note yet";
   }
+  renderReconStatus(scopeKey);
+}
+
+function handleReconStatusChange(event) {
+  const scopeKey = getReconNoteScopeKey();
+  setReconStatusForScope(scopeKey, event.target.value);
+  renderReconStatus(scopeKey);
 }
 
 async function handleUploadInitialReconClick() {
