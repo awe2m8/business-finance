@@ -133,6 +133,23 @@
         </div>
       </section>
 
+      <section class="card notes-panel">
+        <h2>Reconciliation Notes</h2>
+        <p class="hint">
+          Save month-specific notes while reconciling. Current scope:
+          <strong id="reconNoteScopeLabel">All Months</strong>
+        </p>
+        <textarea
+          id="reconNoteInput"
+          rows="4"
+          placeholder="Example: On personal card, Giles paid for this item. Follow up next month."
+        ></textarea>
+        <div class="notes-footer">
+          <button id="saveReconNoteBtn" class="secondary" type="button">Save Note</button>
+          <small id="reconNoteStatus">No note yet</small>
+        </div>
+      </section>
+
       <section class="card transactions-panel">
         <h2>Transactions</h2>
         <div class="filters">
@@ -179,8 +196,35 @@
         <p class="hint">Detected from repeated merchant + near-monthly cadence.</p>
         <ul id="recurringList" class="list"></ul>
       </section>
+
+      <section class="card initial-recon-panel">
+        <h2>Initial Full Reconciliation</h2>
+        <p class="hint">
+          June 2025 to February 2026 baseline upload. Use this for your initial cross-month reconciliation file.
+        </p>
+        <div class="initial-recon-controls">
+          <label>
+            Initial Reconciliation File
+            <input id="initialReconFileInput" type="file" accept=".xlsx,.xls,.csv" />
+          </label>
+          <div class="button-row">
+            <button id="uploadInitialReconBtn" type="button">Upload Initial Reconciliation</button>
+            <button id="clearInitialReconBtn" class="secondary" type="button">Clear Initial Data</button>
+          </div>
+        </div>
+        <div class="metric-grid initial-recon-metrics">
+          <article><span id="initialReconLoadedRows">0</span><small>Rows Loaded</small></article>
+          <article><span id="initialReconInRangeRows">0</span><small>Rows In Scope (Jun 2025-Feb 2026)</small></article>
+          <article><span id="initialReconExpenseTotal">$0.00</span><small>Total Expenses</small></article>
+          <article><span id="initialReconCreditTotal">$0.00</span><small>Total Credits</small></article>
+          <article><span id="initialReconPartnerTotal">$0.00</span><small>Partner Allocation</small></article>
+          <article><span id="initialReconBusinessTotal">$0.00</span><small>Business Allocation</small></article>
+        </div>
+        <ul id="initialReconMessages" class="list compact-list"></ul>
+      </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

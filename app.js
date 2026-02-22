@@ -2,6 +2,11 @@ const STORAGE_KEY = "finance_os_transactions_v1";
 const API_URL_KEY = "finance_os_api_url_v1";
 const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 const CONTROLS_OPEN_KEY = "finance_os_controls_open_v1";
+const RECON_NOTES_KEY = "finance_os_reconciliation_notes_v1";
+const INITIAL_RECON_KEY = "finance_os_initial_reconciliation_v1";
+const INITIAL_RECON_META_KEY = "finance_os_initial_reconciliation_meta_v1";
+const INITIAL_RECON_RANGE_START = "2025-06-01";
+const INITIAL_RECON_RANGE_END = "2026-02-28";
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -57,7 +62,11 @@ const DEFAULT_SPLITS = Object.fromEntries(CATEGORY_OPTIONS.map((category) => [ca
 const state = {
   transactions: [],
   recurring: [],
-  selectedMonthKey: null
+  selectedMonthKey: null,
+  reconciliationNotes: {},
+  activeNoteScopeKey: null,
+  initialReconciliation: [],
+  initialReconciliationMeta: null
 };
 
 const els = {
@@ -102,12 +111,29 @@ const els = {
   vendorConcentrationPercent: document.getElementById("vendorConcentrationPercent"),
   vendorTopList: document.getElementById("vendorTopList"),
   vendorExpenseBaseTotal: document.getElementById("vendorExpenseBaseTotal"),
-  vendorTopTotal: document.getElementById("vendorTopTotal")
+  vendorTopTotal: document.getElementById("vendorTopTotal"),
+  reconNoteScopeLabel: document.getElementById("reconNoteScopeLabel"),
+  reconNoteInput: document.getElementById("reconNoteInput"),
+  saveReconNoteBtn: document.getElementById("saveReconNoteBtn"),
+  reconNoteStatus: document.getElementById("reconNoteStatus"),
+  initialReconFileInput: document.getElementById("initialReconFileInput"),
+  uploadInitialReconBtn: document.getElementById("uploadInitialReconBtn"),
+  clearInitialReconBtn: document.getElementById("clearInitialReconBtn"),
+  initialReconLoadedRows: document.getElementById("initialReconLoadedRows"),
+  initialReconInRangeRows: document.getElementById("initialReconInRangeRows"),
+  initialReconExpenseTotal: document.getElementById("initialReconExpenseTotal"),
+  initialReconCreditTotal: document.getElementById("initialReconCreditTotal"),
+  initialReconPartnerTotal: document.getElementById("initialReconPartnerTotal"),
+  initialReconBusinessTotal: document.getElementById("initialReconBusinessTotal"),
+  initialReconMessages: document.getElementById("initialReconMessages")
 };
 
 function init() {
   state.transactions = normalizeStoredTransactions(loadTransactions()).sort(compareTransactionOrder);
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
+  state.reconciliationNotes = loadStoredObject(RECON_NOTES_KEY, {});
+  state.initialReconciliation = loadStoredArray(INITIAL_RECON_KEY);
+  state.initialReconciliationMeta = loadStoredObject(INITIAL_RECON_META_KEY, null);
   initControlsPanel();
   els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
@@ -128,6 +154,18 @@ function bindEvents() {
   els.downloadTemplateBtn.addEventListener("click", downloadTemplate);
   els.syncBtn.addEventListener("click", syncToApi);
   els.pullBtn.addEventListener("click", pullFromApi);
+  if (els.saveReconNoteBtn) {
+    els.saveReconNoteBtn.addEventListener("click", handleSaveReconNoteClick);
+  }
+  if (els.reconNoteInput) {
+    els.reconNoteInput.addEventListener("input", handleReconNoteInput);
+  }
+  if (els.uploadInitialReconBtn) {
+    els.uploadInitialReconBtn.addEventListener("click", handleUploadInitialReconClick);
+  }
+  if (els.clearInitialReconBtn) {
+    els.clearInitialReconBtn.addEventListener("click", handleClearInitialReconClick);
+  }
   els.apiUrlInput.addEventListener("change", persistApiUrl);
   els.searchInput.addEventListener("input", render);
   els.reviewFilter.addEventListener("change", render);
@@ -599,12 +637,52 @@ function loadTransactions() {
   }
 }
 
+function loadStoredObject(key, fallback = {}) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return fallback;
+    }
+    return parsed;
+  } catch (_e) {
+    return fallback;
+  }
+}
+
+function loadStoredArray(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function persistReconciliationNotes() {
+  localStorage.setItem(RECON_NOTES_KEY, JSON.stringify(state.reconciliationNotes || {}));
+}
+
+function persistInitialReconciliation() {
+  localStorage.setItem(INITIAL_RECON_KEY, JSON.stringify(state.initialReconciliation || []));
+  localStorage.setItem(INITIAL_RECON_META_KEY, JSON.stringify(state.initialReconciliationMeta || null));
+}
+
 function render() {
   renderMetrics();
   renderMonthPanel();
   renderInsights();
+  renderReconciliationNotes();
   renderTransactions();
   renderRecurring();
+  renderInitialReconciliation();
 }
 
 function getAnalysisTransactions() {
@@ -626,6 +704,345 @@ function renderInsights() {
   renderCloseHub(scopedTransactions);
   renderPartnerSplitOverview(scopedTransactions);
   renderVendorConcentration(scopedTransactions);
+}
+
+function getReconNoteScopeKey() {
+  return state.selectedMonthKey || "__all_months__";
+}
+
+function getReconNoteScopeLabel() {
+  return state.selectedMonthKey ? formatMonthKeyLabel(state.selectedMonthKey) : "All Months";
+}
+
+function renderReconciliationNotes() {
+  if (!els.reconNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
+    return;
+  }
+
+  const scopeKey = getReconNoteScopeKey();
+  const scopeLabel = getReconNoteScopeLabel();
+  els.reconNoteScopeLabel.textContent = scopeLabel;
+
+  if (state.activeNoteScopeKey !== scopeKey) {
+    state.activeNoteScopeKey = scopeKey;
+    els.reconNoteInput.value = String(state.reconciliationNotes[scopeKey] || "");
+  }
+
+  const noteValue = String(state.reconciliationNotes[scopeKey] || "");
+  els.reconNoteStatus.textContent = noteValue ? "Saved for this scope" : "No note yet";
+}
+
+function handleReconNoteInput(event) {
+  const scopeKey = getReconNoteScopeKey();
+  const value = String(event.target.value || "");
+  if (value.trim()) {
+    state.reconciliationNotes[scopeKey] = value;
+  } else {
+    delete state.reconciliationNotes[scopeKey];
+  }
+  persistReconciliationNotes();
+  if (els.reconNoteStatus) {
+    els.reconNoteStatus.textContent = value.trim() ? "Saved for this scope" : "No note yet";
+  }
+}
+
+function handleSaveReconNoteClick() {
+  const scopeKey = getReconNoteScopeKey();
+  const value = String(els.reconNoteInput?.value || "");
+  if (value.trim()) {
+    state.reconciliationNotes[scopeKey] = value;
+  } else {
+    delete state.reconciliationNotes[scopeKey];
+  }
+  persistReconciliationNotes();
+  if (els.reconNoteStatus) {
+    els.reconNoteStatus.textContent = value.trim() ? "Saved for this scope" : "No note yet";
+  }
+}
+
+async function handleUploadInitialReconClick() {
+  const file = els.initialReconFileInput?.files?.[0];
+  if (!file) {
+    alert("Choose your initial reconciliation file first.");
+    return;
+  }
+
+  try {
+    const rawRows = await readRowsFromFile(file);
+    if (!rawRows.length) {
+      alert("No rows found in that file.");
+      return;
+    }
+
+    const normalizedRows = rawRows
+      .map((row, index) => normalizeInitialReconRow(row, index))
+      .filter(Boolean);
+
+    if (!normalizedRows.length) {
+      alert("Could not map any usable rows. Check headers like date/description/amount.");
+      return;
+    }
+
+    state.initialReconciliation = normalizedRows;
+    state.initialReconciliationMeta = {
+      fileName: file.name,
+      importedAt: new Date().toISOString(),
+      rawRowCount: rawRows.length,
+      normalizedRowCount: normalizedRows.length
+    };
+    persistInitialReconciliation();
+    renderInitialReconciliation();
+    alert(`Initial reconciliation loaded: ${normalizedRows.length} row(s).`);
+  } catch (error) {
+    alert(`Initial reconciliation upload failed: ${String(error.message || error)}`);
+  }
+}
+
+function handleClearInitialReconClick() {
+  if (!confirm("Clear initial full reconciliation dataset?")) {
+    return;
+  }
+  state.initialReconciliation = [];
+  state.initialReconciliationMeta = null;
+  persistInitialReconciliation();
+  renderInitialReconciliation();
+}
+
+async function readRowsFromFile(file) {
+  const name = String(file.name || "").toLowerCase();
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    return readRowsFromXlsx(file);
+  }
+  const text = await file.text();
+  return parseCSV(text);
+}
+
+async function readRowsFromXlsx(file) {
+  if (!window.XLSX) {
+    throw new Error("XLSX parser is not available.");
+  }
+
+  const buffer = await file.arrayBuffer();
+  const workbook = window.XLSX.read(buffer, { type: "array" });
+  if (!workbook.SheetNames.length) {
+    return [];
+  }
+
+  const preferredSheetName =
+    workbook.SheetNames.find((name) => /jesse/i.test(name)) || workbook.SheetNames[0];
+  const sheet = workbook.Sheets[preferredSheetName];
+  if (!sheet) {
+    return [];
+  }
+
+  return window.XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+}
+
+function normalizeInitialReconRow(row, index) {
+  const rowMap = toNormalizedRowMap(row);
+  const dateRaw = pickRowValue(rowMap, ["date", "transactiondate", "txdate", "posted", "month", "period"]);
+  const description = pickRowValue(rowMap, [
+    "description",
+    "merchant",
+    "vendor",
+    "details",
+    "transaction",
+    "name"
+  ]);
+  const amount = deriveAmountFromRowMap(rowMap);
+
+  if (amount === null) {
+    return null;
+  }
+
+  const categoryRaw = pickRowValue(rowMap, ["category", "label", "subcategory", "type"]);
+  const splitRaw = pickRowValue(rowMap, [
+    "partnersplitpct",
+    "partnersplit",
+    "splitpct",
+    "split",
+    "partnerpct",
+    "partner"
+  ]);
+  const parsedSplit = parsePercentValue(splitRaw);
+  const category = normalizeCategory(categoryRaw || "Uncategorized");
+  const partnerSplitPct = Number.isFinite(parsedSplit) ? clamp(parsedSplit, 0, 100) : DEFAULT_SPLITS[category] || 50;
+  const date = parseDateToISO(dateRaw) || parseMonthToISODate(dateRaw);
+  const safeDescription = String(description || `Initial Recon Row ${index + 1}`).trim();
+
+  return {
+    id: `initial-recon-${index + 1}`,
+    date,
+    description: safeDescription,
+    amount,
+    category,
+    partnerSplitPct
+  };
+}
+
+function toNormalizedRowMap(row) {
+  const out = {};
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const normalizedKey = normalizeHeaderKey(key);
+    out[normalizedKey] = value;
+  });
+  return out;
+}
+
+function normalizeHeaderKey(key) {
+  return String(key || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function pickRowValue(rowMap, keys) {
+  for (const key of keys) {
+    const normalizedKey = normalizeHeaderKey(key);
+    const value = rowMap[normalizedKey];
+    if (String(value || "").trim()) {
+      return String(value).trim();
+    }
+  }
+  return "";
+}
+
+function deriveAmountFromRowMap(rowMap) {
+  const debit = parseAmount(pickRowValue(rowMap, ["debit", "withdrawal", "expense", "dr", "debitamount"]));
+  const credit = parseAmount(pickRowValue(rowMap, ["credit", "deposit", "refund", "cr", "creditamount"]));
+  const amount = parseAmount(pickRowValue(rowMap, ["amount", "total", "value", "net", "amountaud"]));
+
+  if (debit !== null) {
+    return Math.abs(debit);
+  }
+  if (credit !== null) {
+    return -Math.abs(credit);
+  }
+  if (amount !== null) {
+    return amount;
+  }
+  return null;
+}
+
+function parsePercentValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return NaN;
+  }
+  const numeric = Number(raw.replace(/[^0-9.-]/g, ""));
+  return Number.isNaN(numeric) ? NaN : numeric;
+}
+
+function parseMonthToISODate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const monthMatch = raw.match(/^([A-Za-z]{3,9})[\s/-]*(\d{2,4})$/);
+  if (!monthMatch) {
+    return null;
+  }
+  const monthIndex = monthNameToIndex(monthMatch[1]);
+  if (monthIndex < 0) {
+    return null;
+  }
+  const year = monthMatch[2].length === 2 ? Number(`20${monthMatch[2]}`) : Number(monthMatch[2]);
+  if (!Number.isInteger(year)) {
+    return null;
+  }
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-01`;
+}
+
+function monthNameToIndex(value) {
+  const normalized = String(value || "").toLowerCase();
+  const months = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december"
+  ];
+
+  return months.findIndex((month) => month.startsWith(normalized.slice(0, 3)));
+}
+
+function renderInitialReconciliation() {
+  if (
+    !els.initialReconLoadedRows ||
+    !els.initialReconInRangeRows ||
+    !els.initialReconExpenseTotal ||
+    !els.initialReconCreditTotal ||
+    !els.initialReconPartnerTotal ||
+    !els.initialReconBusinessTotal ||
+    !els.initialReconMessages
+  ) {
+    return;
+  }
+
+  const rows = Array.isArray(state.initialReconciliation) ? state.initialReconciliation : [];
+  const inRangeRows = rows.filter((row) => isWithinInitialReconRange(row.date));
+
+  let expenseTotal = 0;
+  let creditTotal = 0;
+  let partnerTotal = 0;
+  let businessTotal = 0;
+
+  inRangeRows.forEach((row) => {
+    const amount = Number(row.amount) || 0;
+    const splitRatio = clamp(Number(row.partnerSplitPct), 0, 100) / 100;
+    if (amount > 0) {
+      expenseTotal += amount;
+    } else if (amount < 0) {
+      creditTotal += Math.abs(amount);
+    }
+    partnerTotal += amount * splitRatio;
+    businessTotal += amount * (1 - splitRatio);
+  });
+
+  els.initialReconLoadedRows.textContent = String(rows.length);
+  els.initialReconInRangeRows.textContent = String(inRangeRows.length);
+  els.initialReconExpenseTotal.textContent = formatCurrency(expenseTotal);
+  els.initialReconCreditTotal.textContent = formatCurrency(creditTotal);
+  els.initialReconPartnerTotal.textContent = formatCurrency(partnerTotal);
+  els.initialReconBusinessTotal.textContent = formatCurrency(businessTotal);
+
+  if (!rows.length) {
+    els.initialReconMessages.innerHTML = "<li>No initial reconciliation file uploaded yet.</li>";
+    return;
+  }
+
+  const meta = state.initialReconciliationMeta || {};
+  const importedAt = meta.importedAt ? new Date(meta.importedAt).toLocaleString() : "Unknown";
+  const fileName = meta.fileName || "Uploaded file";
+  const undatedCount = rows.filter((row) => !parseDateToISO(row.date)).length;
+  const outOfScopeCount = rows.filter((row) => {
+    const iso = parseDateToISO(row.date);
+    return iso && !isWithinInitialReconRange(iso);
+  }).length;
+
+  els.initialReconMessages.innerHTML = `
+    <li><strong>File:</strong> ${escapeHtml(fileName)}</li>
+    <li><strong>Imported:</strong> ${escapeHtml(importedAt)}</li>
+    <li><strong>Scope:</strong> ${formatDateAustralian(INITIAL_RECON_RANGE_START)} to ${formatDateAustralian(
+      INITIAL_RECON_RANGE_END
+    )}</li>
+    <li><strong>Rows outside scope:</strong> ${outOfScopeCount}</li>
+    <li><strong>Rows with unparsed date:</strong> ${undatedCount}</li>
+  `;
+}
+
+function isWithinInitialReconRange(dateValue) {
+  const iso = parseDateToISO(dateValue);
+  if (!iso) {
+    return false;
+  }
+  return iso >= INITIAL_RECON_RANGE_START && iso <= INITIAL_RECON_RANGE_END;
 }
 
 function renderCloseHub(transactions) {
