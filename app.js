@@ -163,7 +163,8 @@ const els = {
   vendorExpenseBaseTotal: document.getElementById("vendorExpenseBaseTotal"),
   vendorTopTotal: document.getElementById("vendorTopTotal"),
   reconNoteScopeLabel: document.getElementById("reconNoteScopeLabel"),
-  reconNoteInput: document.getElementById("reconNoteInput"),
+  gilesNoteInput: document.getElementById("gilesNoteInput"),
+  jesseNoteInput: document.getElementById("jesseNoteInput"),
   reconStatusInput: document.getElementById("reconStatusInput"),
   reconStatusBadge: document.getElementById("reconStatusBadge"),
   reconStatusGuidance: document.getElementById("reconStatusGuidance"),
@@ -223,8 +224,11 @@ function bindEvents() {
   if (els.saveReconNoteBtn) {
     els.saveReconNoteBtn.addEventListener("click", handleSaveReconNoteClick);
   }
-  if (els.reconNoteInput) {
-    els.reconNoteInput.addEventListener("input", handleReconNoteInput);
+  if (els.gilesNoteInput) {
+    els.gilesNoteInput.addEventListener("input", handleReconNoteInput);
+  }
+  if (els.jesseNoteInput) {
+    els.jesseNoteInput.addEventListener("input", handleReconNoteInput);
   }
   if (els.reconStatusInput) {
     els.reconStatusInput.addEventListener("change", handleReconStatusChange);
@@ -889,6 +893,39 @@ function getReconNoteScopeLabel() {
   return state.selectedMonthKey ? formatMonthKeyLabel(state.selectedMonthKey) : "All Months";
 }
 
+function normalizeReconNotesEntry(entry) {
+  if (typeof entry === "string") {
+    return {
+      giles: "",
+      jesse: entry
+    };
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return {
+      giles: "",
+      jesse: ""
+    };
+  }
+  return {
+    giles: String(entry.giles || ""),
+    jesse: String(entry.jesse || "")
+  };
+}
+
+function hasReconNotes(entry) {
+  return Boolean(String(entry.giles || "").trim() || String(entry.jesse || "").trim());
+}
+
+function setReconNotesForScope(scopeKey, notesEntry) {
+  const normalized = normalizeReconNotesEntry(notesEntry);
+  if (hasReconNotes(normalized)) {
+    state.reconciliationNotes[scopeKey] = normalized;
+  } else {
+    delete state.reconciliationNotes[scopeKey];
+  }
+  persistReconciliationNotes();
+}
+
 function normalizeReconStatus(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (RECON_STATUS_LOOKUP[normalized]) {
@@ -931,7 +968,7 @@ function renderReconStatus(scopeKey) {
 }
 
 function renderReconciliationNotes() {
-  if (!els.reconNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
+  if (!els.gilesNoteInput || !els.jesseNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
     return;
   }
 
@@ -941,42 +978,40 @@ function renderReconciliationNotes() {
 
   if (state.activeNoteScopeKey !== scopeKey) {
     state.activeNoteScopeKey = scopeKey;
-    els.reconNoteInput.value = String(state.reconciliationNotes[scopeKey] || "");
+    const scopeNotes = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
+    els.gilesNoteInput.value = scopeNotes.giles;
+    els.jesseNoteInput.value = scopeNotes.jesse;
   }
 
-  const noteValue = String(state.reconciliationNotes[scopeKey] || "");
-  els.reconNoteStatus.textContent = noteValue ? "Saved for this scope" : "No note yet";
+  const noteValue = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
+  els.reconNoteStatus.textContent = hasReconNotes(noteValue) ? "Saved for this scope" : "No note yet";
   renderReconStatus(scopeKey);
 }
 
-function handleReconNoteInput(event) {
+function handleReconNoteInput() {
   const scopeKey = getReconNoteScopeKey();
-  const value = String(event.target.value || "");
-  if (value.trim()) {
-    state.reconciliationNotes[scopeKey] = value;
-  } else {
-    delete state.reconciliationNotes[scopeKey];
-  }
-  persistReconciliationNotes();
+  const notesEntry = {
+    giles: String(els.gilesNoteInput?.value || ""),
+    jesse: String(els.jesseNoteInput?.value || "")
+  };
+  setReconNotesForScope(scopeKey, notesEntry);
   if (els.reconNoteStatus) {
-    els.reconNoteStatus.textContent = value.trim() ? "Saved for this scope" : "No note yet";
+    els.reconNoteStatus.textContent = hasReconNotes(notesEntry) ? "Saved for this scope" : "No note yet";
   }
 }
 
 function handleSaveReconNoteClick() {
   const scopeKey = getReconNoteScopeKey();
-  const value = String(els.reconNoteInput?.value || "");
-  if (value.trim()) {
-    state.reconciliationNotes[scopeKey] = value;
-  } else {
-    delete state.reconciliationNotes[scopeKey];
-  }
-  persistReconciliationNotes();
+  const notesEntry = {
+    giles: String(els.gilesNoteInput?.value || ""),
+    jesse: String(els.jesseNoteInput?.value || "")
+  };
+  setReconNotesForScope(scopeKey, notesEntry);
   if (els.reconStatusInput) {
     setReconStatusForScope(scopeKey, els.reconStatusInput.value);
   }
   if (els.reconNoteStatus) {
-    els.reconNoteStatus.textContent = value.trim() ? "Saved for this scope" : "No note yet";
+    els.reconNoteStatus.textContent = hasReconNotes(notesEntry) ? "Saved for this scope" : "No note yet";
   }
   renderReconStatus(scopeKey);
 }

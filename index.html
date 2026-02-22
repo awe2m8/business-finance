@@ -195,11 +195,26 @@
             Save month-specific notes while reconciling. Current scope:
             <strong id="reconNoteScopeLabel">All Months</strong>
           </p>
-          <textarea
-            id="reconNoteInput"
-            rows="4"
-            placeholder="Example: On personal card, Giles paid for this item. Follow up next month."
-          ></textarea>
+          <div class="recon-notes-grid">
+            <label class="recon-note-field">
+              Giles Notes
+              <textarea
+                id="gilesNoteInput"
+                class="recon-note-input"
+                rows="4"
+                placeholder="Example: Giles paid personal card item on 16/02/2026."
+              ></textarea>
+            </label>
+            <label class="recon-note-field">
+              Jesse Notes
+              <textarea
+                id="jesseNoteInput"
+                class="recon-note-input"
+                rows="4"
+                placeholder="Example: Jesse follow-up needed before month close."
+              ></textarea>
+            </label>
+          </div>
           <div class="recon-status-row">
             <label class="recon-status-field">
               Reconciliation Status

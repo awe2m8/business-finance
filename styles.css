@@ -482,7 +482,18 @@ button.panel-toggle-btn:hover {
   font-size: 0.9rem;
 }
 
-#reconNoteInput {
+.recon-notes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.recon-note-field {
+  display: grid;
+  gap: 4px;
+}
+
+.recon-note-input {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -736,6 +747,10 @@ td select {
   }
 
   .recon-status-row {
+    grid-template-columns: 1fr;
+  }
+
+  .recon-notes-grid {
     grid-template-columns: 1fr;
   }
 }
