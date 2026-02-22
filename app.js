@@ -403,6 +403,14 @@ function parseDateToISO(value) {
     return null;
   }
 
+  const excelSerialMatch = raw.match(/^\d+(?:\.\d+)?$/);
+  if (excelSerialMatch) {
+    const excelDate = excelSerialToISO(Number(raw));
+    if (excelDate) {
+      return excelDate;
+    }
+  }
+
   const isoTimestamp = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
   if (isoTimestamp) {
     return isoTimestamp[1];
@@ -425,6 +433,23 @@ function parseDateToISO(value) {
     return toISODate(year, month, day); // Australian format: DD/MM/YYYY
   }
   return null;
+}
+
+function excelSerialToISO(serial) {
+  if (!Number.isFinite(serial)) {
+    return null;
+  }
+  const days = Math.floor(serial);
+  if (days < 20000 || days > 60000) {
+    return null;
+  }
+
+  const epoch = new Date(Date.UTC(1899, 11, 30));
+  epoch.setUTCDate(epoch.getUTCDate() + days);
+  const year = epoch.getUTCFullYear();
+  const month = String(epoch.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(epoch.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeYear(yearValue) {
@@ -774,9 +799,7 @@ async function handleUploadInitialReconClick() {
       return;
     }
 
-    const normalizedRows = rawRows
-      .map((row, index) => normalizeInitialReconRow(row, index))
-      .filter(Boolean);
+    const normalizedRows = normalizeInitialReconRows(rawRows);
 
     if (!normalizedRows.length) {
       alert("Could not map any usable rows. Check headers like date/description/amount.");
@@ -835,10 +858,96 @@ async function readRowsFromXlsx(file) {
     return [];
   }
 
-  return window.XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
 }
 
-function normalizeInitialReconRow(row, index) {
+function normalizeInitialReconRows(rawRows) {
+  const out = [];
+  rawRows.forEach((row, index) => {
+    if (Array.isArray(row)) {
+      out.push(...normalizeInitialReconArrayRow(row, index));
+      return;
+    }
+    const parsed = normalizeInitialReconMappedRow(row, index);
+    if (parsed) {
+      out.push(parsed);
+    }
+  });
+
+  return dedupeInitialReconRows(out);
+}
+
+function dedupeInitialReconRows(rows) {
+  const seen = new Set();
+  const out = [];
+  rows.forEach((row) => {
+    const key = `${row.date || ""}|${String(row.description || "").toLowerCase().trim()}|${Number(row.amount || 0).toFixed(
+      2
+    )}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    out.push(row);
+  });
+  return out;
+}
+
+function normalizeInitialReconArrayRow(row, index) {
+  const items = [];
+  const cell = (idx) => String(row[idx] ?? "").trim();
+  const categoryHint = cell(0);
+  const cardHint = cell(4);
+
+  const manualRow = buildInitialReconItem({
+    dateValue: cell(0),
+    descriptionValue: cell(1),
+    amountValue: cell(2),
+    debitValue: "",
+    creditValue: "",
+    categoryHint,
+    splitHint: "",
+    cardHint,
+    rowKey: `manual-${index + 1}`
+  });
+  if (manualRow) {
+    items.push(manualRow);
+  }
+
+  const bankBlock1 = buildInitialReconItem({
+    dateValue: cell(17),
+    descriptionValue: cell(18),
+    amountValue: "",
+    debitValue: cell(19),
+    creditValue: cell(20),
+    categoryHint,
+    splitHint: "",
+    cardHint,
+    rowKey: `bank-a-${index + 1}`
+  });
+  if (bankBlock1) {
+    items.push(bankBlock1);
+  }
+
+  const bankBlock2 = buildInitialReconItem({
+    dateValue: cell(25),
+    descriptionValue: cell(26),
+    amountValue: "",
+    debitValue: cell(27),
+    creditValue: cell(28),
+    categoryHint,
+    splitHint: "",
+    cardHint,
+    rowKey: `bank-b-${index + 1}`
+  });
+  if (bankBlock2) {
+    items.push(bankBlock2);
+  }
+
+  return items;
+}
+
+function normalizeInitialReconMappedRow(row, index) {
   const rowMap = toNormalizedRowMap(row);
   const dateRaw = pickRowValue(rowMap, ["date", "transactiondate", "txdate", "posted", "month", "period"]);
   const description = pickRowValue(rowMap, [
@@ -849,12 +958,6 @@ function normalizeInitialReconRow(row, index) {
     "transaction",
     "name"
   ]);
-  const amount = deriveAmountFromRowMap(rowMap);
-
-  if (amount === null) {
-    return null;
-  }
-
   const categoryRaw = pickRowValue(rowMap, ["category", "label", "subcategory", "type"]);
   const splitRaw = pickRowValue(rowMap, [
     "partnersplitpct",
@@ -864,20 +967,127 @@ function normalizeInitialReconRow(row, index) {
     "partnerpct",
     "partner"
   ]);
-  const parsedSplit = parsePercentValue(splitRaw);
-  const category = normalizeCategory(categoryRaw || "Uncategorized");
+  return buildInitialReconItem({
+    dateValue: dateRaw,
+    descriptionValue: description || `Initial Recon Row ${index + 1}`,
+    amountValue: pickRowValue(rowMap, ["amount", "total", "value", "net", "amountaud"]),
+    debitValue: pickRowValue(rowMap, ["debit", "withdrawal", "expense", "dr", "debitamount"]),
+    creditValue: pickRowValue(rowMap, ["credit", "deposit", "refund", "cr", "creditamount"]),
+    categoryHint: categoryRaw,
+    splitHint: splitRaw,
+    cardHint: pickRowValue(rowMap, ["card", "source", "account"]),
+    rowKey: `mapped-${index + 1}`
+  });
+}
+
+function buildInitialReconItem({
+  dateValue,
+  descriptionValue,
+  amountValue,
+  debitValue,
+  creditValue,
+  categoryHint,
+  splitHint,
+  cardHint,
+  rowKey
+}) {
+  let date = parseDateToISO(dateValue) || parseMonthToISODate(dateValue);
+  const description = String(descriptionValue || "").trim();
+
+  if ((!date || !isWithinInitialReconRange(date)) && description) {
+    const inferredDate = inferInitialReconDateFromDescription(description);
+    if (inferredDate) {
+      date = inferredDate;
+    }
+  }
+
+  const debit = parseAmount(debitValue);
+  const credit = parseAmount(creditValue);
+  const amount = parseAmount(amountValue);
+
+  let normalizedAmount = null;
+  if (debit !== null) {
+    normalizedAmount = Math.abs(debit);
+  } else if (credit !== null) {
+    normalizedAmount = -Math.abs(credit);
+  } else if (amount !== null) {
+    normalizedAmount = amount;
+  }
+
+  if (!date || !description || normalizedAmount === null) {
+    return null;
+  }
+
+  const parsedSplit = parsePercentValue(splitHint);
+  const derivedCategory = inferInitialReconCategory(description, categoryHint, cardHint);
+  const category = normalizeCategory(derivedCategory || "Uncategorized");
   const partnerSplitPct = Number.isFinite(parsedSplit) ? clamp(parsedSplit, 0, 100) : DEFAULT_SPLITS[category] || 50;
-  const date = parseDateToISO(dateRaw) || parseMonthToISODate(dateRaw);
-  const safeDescription = String(description || `Initial Recon Row ${index + 1}`).trim();
 
   return {
-    id: `initial-recon-${index + 1}`,
+    id: `initial-recon-${rowKey}`,
     date,
-    description: safeDescription,
-    amount,
+    description,
+    amount: normalizedAmount,
     category,
     partnerSplitPct
   };
+}
+
+function inferInitialReconDateFromDescription(description) {
+  const raw = String(description || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const match = raw.match(/\b(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b/i);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const monthToken = match[2].toLowerCase();
+  const monthMap = {
+    jan: 1,
+    feb: 2,
+    mar: 3,
+    apr: 4,
+    may: 5,
+    jun: 6,
+    jul: 7,
+    aug: 8,
+    sep: 9,
+    sept: 9,
+    oct: 10,
+    nov: 11,
+    dec: 12
+  };
+  const month = monthMap[monthToken];
+  if (!month) {
+    return null;
+  }
+
+  // Scope-specific year inference for the initial reconciliation window.
+  const year = month >= 6 ? 2025 : 2026;
+  return toISODate(year, month, day);
+}
+
+function inferInitialReconCategory(description, categoryHint = "", cardHint = "") {
+  const hintCategory = normalizeCategory(String(categoryHint || "").trim());
+  if (CATEGORY_OPTIONS.includes(hintCategory) && hintCategory !== "Uncategorized") {
+    return hintCategory;
+  }
+
+  const text = `${description || ""} ${categoryHint || ""}`.toLowerCase();
+  const matchedRule = CATEGORY_RULES.find((rule) => text.includes(rule.keyword));
+  if (matchedRule) {
+    return matchedRule.category;
+  }
+
+  const card = String(cardHint || "").toLowerCase();
+  if (card.includes("personal")) {
+    return "Misc Debit";
+  }
+  return "Uncategorized";
 }
 
 function toNormalizedRowMap(row) {
@@ -904,23 +1114,6 @@ function pickRowValue(rowMap, keys) {
     }
   }
   return "";
-}
-
-function deriveAmountFromRowMap(rowMap) {
-  const debit = parseAmount(pickRowValue(rowMap, ["debit", "withdrawal", "expense", "dr", "debitamount"]));
-  const credit = parseAmount(pickRowValue(rowMap, ["credit", "deposit", "refund", "cr", "creditamount"]));
-  const amount = parseAmount(pickRowValue(rowMap, ["amount", "total", "value", "net", "amountaud"]));
-
-  if (debit !== null) {
-    return Math.abs(debit);
-  }
-  if (credit !== null) {
-    return -Math.abs(credit);
-  }
-  if (amount !== null) {
-    return amount;
-  }
-  return null;
 }
 
 function parsePercentValue(value) {
@@ -1025,6 +1218,20 @@ function renderInitialReconciliation() {
     const iso = parseDateToISO(row.date);
     return iso && !isWithinInitialReconRange(iso);
   }).length;
+  const categoryTotals = new Map();
+  inRangeRows.forEach((row) => {
+    const key = normalizeCategory(row.category || "Uncategorized");
+    categoryTotals.set(key, (categoryTotals.get(key) || 0) + (Number(row.amount) || 0));
+  });
+  const topCategories = Array.from(categoryTotals.entries())
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    .slice(0, 3);
+  const topCategorySummary = topCategories.length
+    ? topCategories
+        .map((item) => `${item.category}: ${formatCurrency(item.amount)}`)
+        .join(" | ")
+    : "No category totals yet";
 
   els.initialReconMessages.innerHTML = `
     <li><strong>File:</strong> ${escapeHtml(fileName)}</li>
@@ -1034,6 +1241,7 @@ function renderInitialReconciliation() {
     )}</li>
     <li><strong>Rows outside scope:</strong> ${outOfScopeCount}</li>
     <li><strong>Rows with unparsed date:</strong> ${undatedCount}</li>
+    <li><strong>Top categories (net):</strong> ${escapeHtml(topCategorySummary)}</li>
   `;
 }
 
