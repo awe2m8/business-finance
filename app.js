@@ -1953,6 +1953,13 @@ function deleteMonthBatch(summary) {
   refreshDerivedData();
   persist();
   render();
+
+  if (getApiBaseUrl()) {
+    setSyncStatus(`Saving ${label} month removal to API...`, "warn");
+    void syncToApi({ silent: true, source: "month-remove" });
+  } else {
+    setSyncStatus("Month removed locally. Add API URL and sync to persist across refresh.", "warn");
+  }
 }
 
 function buildMonthSummaries(transactions) {
