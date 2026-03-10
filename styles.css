@@ -598,6 +598,58 @@ button.panel-toggle-btn:hover {
   color: var(--muted);
 }
 
+.recon-history {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.recon-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#reconHistoryStatus {
+  display: block;
+  margin-top: 4px;
+}
+
+#reconHistoryList {
+  margin-top: 8px;
+}
+
+.recon-history-entry {
+  display: grid;
+  gap: 5px;
+}
+
+.recon-history-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.recon-history-meta {
+  color: var(--muted);
+}
+
+.recon-history-summary {
+  font-size: 0.88rem;
+  color: #223a33;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recon-restore-btn {
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
 .initial-recon-controls label {
   display: grid;
   gap: 4px;

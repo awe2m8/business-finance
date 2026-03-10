@@ -98,6 +98,8 @@ const state = {
   selectedMonthKey: null,
   reconciliationNotes: {},
   reconciliationStatuses: {},
+  reconciliationHistoryByScope: {},
+  reconciliationHistoryFetchedAt: {},
   activeNoteScopeKey: null,
   initialReconciliation: [],
   initialReconciliationMeta: null
@@ -176,6 +178,9 @@ const els = {
   reconStatusGuidance: document.getElementById("reconStatusGuidance"),
   saveReconNoteBtn: document.getElementById("saveReconNoteBtn"),
   reconNoteStatus: document.getElementById("reconNoteStatus"),
+  refreshReconHistoryBtn: document.getElementById("refreshReconHistoryBtn"),
+  reconHistoryStatus: document.getElementById("reconHistoryStatus"),
+  reconHistoryList: document.getElementById("reconHistoryList"),
   initialReconFileInput: document.getElementById("initialReconFileInput"),
   uploadInitialReconBtn: document.getElementById("uploadInitialReconBtn"),
   clearInitialReconBtn: document.getElementById("clearInitialReconBtn"),
@@ -248,6 +253,12 @@ function bindEvents() {
   }
   if (els.reconStatusInput) {
     els.reconStatusInput.addEventListener("change", handleReconStatusChange);
+  }
+  if (els.refreshReconHistoryBtn) {
+    els.refreshReconHistoryBtn.addEventListener("click", handleRefreshReconHistoryClick);
+  }
+  if (els.reconHistoryList) {
+    els.reconHistoryList.addEventListener("click", handleReconHistoryListClick);
   }
   if (els.uploadInitialReconBtn) {
     els.uploadInitialReconBtn.addEventListener("click", handleUploadInitialReconClick);
@@ -981,6 +992,138 @@ function renderReconStatus(scopeKey) {
   els.reconStatusGuidance.textContent = statusMeta.guidance;
 }
 
+function formatDateTimeAustralian(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value || "");
+  }
+  return date.toLocaleString("en-AU", { hour12: false });
+}
+
+function truncateText(value, maxLen = 120) {
+  const raw = String(value || "").trim();
+  if (raw.length <= maxLen) {
+    return raw;
+  }
+  return `${raw.slice(0, maxLen - 1)}…`;
+}
+
+function formatHistorySummaryItem(item) {
+  const parts = [];
+  const giles = String(item.note_giles || "").trim();
+  const jesse = String(item.note_jesse || "").trim();
+  if (giles) {
+    parts.push(`Giles: ${truncateText(giles, 80)}`);
+  }
+  if (jesse) {
+    parts.push(`Jesse: ${truncateText(jesse, 80)}`);
+  }
+  if (!parts.length) {
+    parts.push("No notes");
+  }
+  return parts.join(" | ");
+}
+
+function renderReconciliationHistory(scopeKey = getReconNoteScopeKey()) {
+  if (!els.reconHistoryList || !els.reconHistoryStatus) {
+    return;
+  }
+
+  const currentScope = getReconNoteScopeKey();
+  if (scopeKey !== currentScope) {
+    return;
+  }
+
+  const history = state.reconciliationHistoryByScope[scopeKey];
+  if (!Array.isArray(history)) {
+    els.reconHistoryStatus.textContent = "History not loaded yet for this scope.";
+    els.reconHistoryList.innerHTML = "";
+    return;
+  }
+
+  if (!history.length) {
+    els.reconHistoryStatus.textContent = "No versions saved yet for this scope.";
+    els.reconHistoryList.innerHTML = "";
+    return;
+  }
+
+  els.reconHistoryStatus.textContent = `Showing ${history.length} most recent version(s).`;
+  els.reconHistoryList.innerHTML = history
+    .map((item) => {
+      const statusMeta = RECON_STATUS_LOOKUP[normalizeReconStatus(item.status)] || RECON_STATUS_LOOKUP.pending;
+      const eventLabel = String(item.event_type || "update").toUpperCase();
+      const timestamp = formatDateTimeAustralian(item.created_at);
+      return `
+        <li>
+          <div class="recon-history-entry">
+            <div class="recon-history-entry-top">
+              <span class="recon-history-meta">${escapeHtml(timestamp)} · ${escapeHtml(eventLabel)} · ${escapeHtml(
+                statusMeta.label
+              )}</span>
+              <button
+                class="secondary recon-restore-btn"
+                type="button"
+                data-action="restore-recon-version"
+                data-version-id="${Number(item.id)}"
+                data-scope-key="${escapeHtml(scopeKey)}"
+              >Restore</button>
+            </div>
+            <div class="recon-history-summary">${escapeHtml(formatHistorySummaryItem(item))}</div>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+}
+
+async function pullReconciliationHistory(scopeKey, { force = false, silent = true } = {}) {
+  const normalizedScopeKey = String(scopeKey || "").trim();
+  if (!normalizedScopeKey) {
+    return false;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    if (!silent && els.reconHistoryStatus) {
+      els.reconHistoryStatus.textContent = "Set API URL to load history.";
+    }
+    return false;
+  }
+
+  if (!force && Array.isArray(state.reconciliationHistoryByScope[normalizedScopeKey])) {
+    renderReconciliationHistory(normalizedScopeKey);
+    return true;
+  }
+
+  if (els.reconHistoryStatus && normalizedScopeKey === getReconNoteScopeKey()) {
+    els.reconHistoryStatus.textContent = "Loading history...";
+  }
+
+  try {
+    const res = await fetch(
+      `${baseUrl}/reconciliation-scopes/${encodeURIComponent(normalizedScopeKey)}/history?limit=20`
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `History pull failed (${res.status})`);
+    }
+    const rows = await res.json();
+    state.reconciliationHistoryByScope[normalizedScopeKey] = Array.isArray(rows) ? rows : [];
+    state.reconciliationHistoryFetchedAt[normalizedScopeKey] = Date.now();
+    renderReconciliationHistory(normalizedScopeKey);
+    return true;
+  } catch (error) {
+    const message = String(error.message || error);
+    if (normalizedScopeKey === getReconNoteScopeKey() && els.reconHistoryStatus) {
+      els.reconHistoryStatus.textContent = `History load failed: ${message}`;
+    }
+    if (!silent) {
+      alert(`History load failed: ${message}`);
+    }
+    return false;
+  }
+}
+
 function renderReconciliationNotes() {
   if (!els.gilesNoteInput || !els.jesseNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
     return;
@@ -989,8 +1132,9 @@ function renderReconciliationNotes() {
   const scopeKey = getReconNoteScopeKey();
   const scopeLabel = getReconNoteScopeLabel();
   els.reconNoteScopeLabel.textContent = scopeLabel;
+  const scopeChanged = state.activeNoteScopeKey !== scopeKey;
 
-  if (state.activeNoteScopeKey !== scopeKey) {
+  if (scopeChanged) {
     state.activeNoteScopeKey = scopeKey;
     const scopeNotes = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
     els.gilesNoteInput.value = scopeNotes.giles;
@@ -1000,6 +1144,10 @@ function renderReconciliationNotes() {
   const noteValue = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
   els.reconNoteStatus.textContent = hasReconNotes(noteValue) ? "Saved for this scope" : "No note yet";
   renderReconStatus(scopeKey);
+  renderReconciliationHistory(scopeKey);
+  if (scopeChanged) {
+    void pullReconciliationHistory(scopeKey, { force: false, silent: true });
+  }
 }
 
 function handleReconNoteInput() {
@@ -1037,6 +1185,82 @@ function handleReconStatusChange(event) {
   setReconStatusForScope(scopeKey, event.target.value);
   renderReconStatus(scopeKey);
   scheduleAutoSync("recon-status");
+}
+
+function handleRefreshReconHistoryClick() {
+  const scopeKey = getReconNoteScopeKey();
+  void pullReconciliationHistory(scopeKey, { force: true, silent: false });
+}
+
+async function restoreReconciliationHistoryVersion(scopeKey, versionId) {
+  const normalizedScopeKey = String(scopeKey || "").trim();
+  const normalizedVersionId = Number(versionId);
+  if (!normalizedScopeKey || !Number.isInteger(normalizedVersionId) || normalizedVersionId < 1) {
+    return;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    alert("Set API URL first.");
+    return;
+  }
+
+  const confirmed = confirm(`Restore version #${normalizedVersionId} for ${getReconNoteScopeLabel()}?`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    if (els.reconHistoryStatus) {
+      els.reconHistoryStatus.textContent = `Restoring version #${normalizedVersionId}...`;
+    }
+    const res = await fetch(`${baseUrl}/reconciliation-scopes/${encodeURIComponent(normalizedScopeKey)}/restore`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version_id: normalizedVersionId, source: "ui-history-restore" })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `Restore failed (${res.status})`);
+    }
+    const restored = await res.json();
+    const cleared = Boolean(restored.cleared);
+    if (cleared) {
+      delete state.reconciliationNotes[normalizedScopeKey];
+      delete state.reconciliationStatuses[normalizedScopeKey];
+    } else {
+      state.reconciliationNotes[normalizedScopeKey] = normalizeReconNotesEntry({
+        giles: restored.note_giles,
+        jesse: restored.note_jesse
+      });
+      state.reconciliationStatuses[normalizedScopeKey] = {
+        value: normalizeReconStatus(restored.status),
+        updatedAt: restored.updated_at || new Date().toISOString()
+      };
+    }
+    state.activeNoteScopeKey = null;
+    persistReconciliationNotes();
+    persistReconciliationStatuses();
+    render();
+    await pullReconciliationHistory(normalizedScopeKey, { force: true, silent: true });
+    setSyncStatus(`Restored scope ${normalizedScopeKey} from version #${normalizedVersionId}.`, "ok");
+  } catch (error) {
+    const message = String(error.message || error);
+    if (els.reconHistoryStatus) {
+      els.reconHistoryStatus.textContent = `Restore failed: ${message}`;
+    }
+    alert(`Restore failed: ${message}`);
+  }
+}
+
+function handleReconHistoryListClick(event) {
+  const button = event.target.closest("[data-action='restore-recon-version']");
+  if (!button) {
+    return;
+  }
+  const scopeKey = String(button.dataset.scopeKey || "");
+  const versionId = Number(button.dataset.versionId || 0);
+  void restoreReconciliationHistoryVersion(scopeKey, versionId);
 }
 
 async function handleUploadInitialReconClick() {
@@ -2046,6 +2270,8 @@ function applyRemoteReconciliationScopes(rows) {
 
   state.reconciliationNotes = nextNotes;
   state.reconciliationStatuses = nextStatuses;
+  state.reconciliationHistoryByScope = {};
+  state.reconciliationHistoryFetchedAt = {};
   state.activeNoteScopeKey = null;
   persistReconciliationNotes();
   persistReconciliationStatuses();
@@ -2160,7 +2386,7 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
       const scopeRes = await fetch(`${baseUrl}/reconciliation-scopes/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: scopeItems })
+        body: JSON.stringify({ items: scopeItems, source })
       });
       if (!scopeRes.ok) {
         const err = await scopeRes.text();
@@ -2179,6 +2405,7 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
     if (!silent) {
       alert(`Synced tx: ${txInserted}, shared notes/status: ${scopesUpserted}, cleared scopes: ${scopesDeleted}.`);
     }
+    void pullReconciliationHistory(getReconNoteScopeKey(), { force: true, silent: true });
     return true;
   } catch (error) {
     const message = String(error.message || error);
@@ -2273,6 +2500,7 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
     persistApiUrl();
     persist();
     render();
+    void pullReconciliationHistory(getReconNoteScopeKey(), { force: true, silent: true });
     if (scopeWarning) {
       setSyncStatus(`Last pull ${formatClockTime()} (tx ${imported.length}, ${scopeWarning}).`, "warn");
     } else {

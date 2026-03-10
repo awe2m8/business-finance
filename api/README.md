@@ -8,6 +8,8 @@ Minimal Express API for Render + Supabase.
 - `POST /transactions/bulk`
 - `GET /reconciliation-scopes`
 - `POST /reconciliation-scopes/bulk`
+- `GET /reconciliation-scopes/:scopeKey/history`
+- `POST /reconciliation-scopes/:scopeKey/restore`
 
 ## Local run
 ```bash

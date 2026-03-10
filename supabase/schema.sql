@@ -31,3 +31,18 @@ create table if not exists reconciliation_scopes (
 );
 
 create index if not exists idx_reconciliation_scopes_updated_at on reconciliation_scopes (updated_at desc);
+
+create table if not exists reconciliation_scope_versions (
+  id bigserial primary key,
+  scope_key text not null,
+  note_giles text,
+  note_jesse text,
+  status text not null default 'pending',
+  event_type text not null default 'update',
+  source text not null default 'ui-sync',
+  created_at timestamptz not null default now(),
+  constraint reconciliation_scope_versions_status_check check (status in ('pending', 'waiting-giles', 'waiting-jesse', 'reconciled')),
+  constraint reconciliation_scope_versions_event_type_check check (event_type in ('create', 'update', 'delete', 'restore'))
+);
+
+create index if not exists idx_reconciliation_scope_versions_scope_id on reconciliation_scope_versions (scope_key, id desc);

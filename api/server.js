@@ -66,6 +66,34 @@ app.get("/reconciliation-scopes", async (_req, res) => {
   }
 });
 
+app.get("/reconciliation-scopes/:scopeKey/history", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const scopeKey = normalizeScopeKey(req.params.scopeKey);
+  if (!scopeKey) {
+    return res.status(400).json({ error: "Valid scope key is required" });
+  }
+
+  const requestedLimit = Number(req.query.limit || 20);
+  const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 100)) : 20;
+
+  try {
+    const { rows } = await pool.query(
+      `select id, scope_key, note_giles, note_jesse, status, event_type, source, created_at
+       from reconciliation_scope_versions
+       where scope_key = $1
+       order by id desc
+       limit $2`,
+      [scopeKey, limit]
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
 app.post("/transactions/bulk", async (req, res) => {
   if (!pool) {
     return res.status(500).json({ error: "DATABASE_URL is required" });
@@ -127,6 +155,7 @@ app.post("/reconciliation-scopes/bulk", async (req, res) => {
   }
 
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const source = normalizeSource(req.body?.source);
   if (!items.length) {
     return res.status(400).json({ error: "items[] is required" });
   }
@@ -148,10 +177,39 @@ app.post("/reconciliation-scopes/bulk", async (req, res) => {
         continue;
       }
 
+      const existingRes = await client.query(
+        `select note_giles, note_jesse, status from reconciliation_scopes where scope_key = $1`,
+        [scopeKey]
+      );
+      const existing = existingRes.rows[0] || null;
+
       const shouldClear = !noteGiles && !noteJesse && status === "pending";
       if (shouldClear) {
-        const result = await client.query(`delete from reconciliation_scopes where scope_key = $1`, [scopeKey]);
-        deleted += Number(result.rowCount || 0);
+        if (existing) {
+          await insertScopeVersion(client, {
+            scopeKey,
+            noteGiles: null,
+            noteJesse: null,
+            status: "pending",
+            eventType: "delete",
+            source
+          });
+          const result = await client.query(`delete from reconciliation_scopes where scope_key = $1`, [scopeKey]);
+          deleted += Number(result.rowCount || 0);
+        }
+        continue;
+      }
+
+      const normalizedExistingGiles = normalizeOptionalText(existing?.note_giles);
+      const normalizedExistingJesse = normalizeOptionalText(existing?.note_jesse);
+      const normalizedExistingStatus = normalizeReconStatus(existing?.status);
+      const changed =
+        !existing ||
+        normalizedExistingGiles !== noteGiles ||
+        normalizedExistingJesse !== noteJesse ||
+        normalizedExistingStatus !== status;
+
+      if (!changed) {
         continue;
       }
 
@@ -166,10 +224,107 @@ app.post("/reconciliation-scopes/bulk", async (req, res) => {
         [scopeKey, noteGiles, noteJesse, status]
       );
       upserted += 1;
+      await insertScopeVersion(client, {
+        scopeKey,
+        noteGiles,
+        noteJesse,
+        status,
+        eventType: existing ? "update" : "create",
+        source
+      });
     }
 
     await client.query("commit");
     return res.status(201).json({ upserted, deleted });
+  } catch (error) {
+    await client.query("rollback");
+    return res.status(500).json({ error: String(error.message || error) });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/reconciliation-scopes/:scopeKey/restore", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const scopeKey = normalizeScopeKey(req.params.scopeKey);
+  const versionId = Number(req.body?.version_id);
+  const source = normalizeSource(req.body?.source || "ui-restore");
+
+  if (!scopeKey) {
+    return res.status(400).json({ error: "Valid scope key is required" });
+  }
+  if (!Number.isInteger(versionId) || versionId < 1) {
+    return res.status(400).json({ error: "version_id is required" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+
+    const versionRes = await client.query(
+      `select id, scope_key, note_giles, note_jesse, status
+       from reconciliation_scope_versions
+       where id = $1 and scope_key = $2`,
+      [versionId, scopeKey]
+    );
+    const version = versionRes.rows[0];
+    if (!version) {
+      await client.query("rollback");
+      return res.status(404).json({ error: "Version not found for this scope" });
+    }
+
+    const noteGiles = normalizeOptionalText(version.note_giles);
+    const noteJesse = normalizeOptionalText(version.note_jesse);
+    const status = normalizeReconStatus(version.status);
+    const shouldClear = !noteGiles && !noteJesse && status === "pending";
+
+    if (shouldClear) {
+      await insertScopeVersion(client, {
+        scopeKey,
+        noteGiles: null,
+        noteJesse: null,
+        status: "pending",
+        eventType: "restore",
+        source
+      });
+      await client.query(`delete from reconciliation_scopes where scope_key = $1`, [scopeKey]);
+      await client.query("commit");
+      return res.json({
+        scope_key: scopeKey,
+        note_giles: null,
+        note_jesse: null,
+        status: "pending",
+        updated_at: new Date().toISOString(),
+        cleared: true
+      });
+    }
+
+    const upsertRes = await client.query(
+      `insert into reconciliation_scopes (scope_key, note_giles, note_jesse, status)
+       values ($1, $2, $3, $4)
+       on conflict (scope_key) do update
+         set note_giles = excluded.note_giles,
+             note_jesse = excluded.note_jesse,
+             status = excluded.status,
+             updated_at = now()
+       returning scope_key, note_giles, note_jesse, status, updated_at`,
+      [scopeKey, noteGiles, noteJesse, status]
+    );
+
+    await insertScopeVersion(client, {
+      scopeKey,
+      noteGiles,
+      noteJesse,
+      status,
+      eventType: "restore",
+      source
+    });
+
+    await client.query("commit");
+    return res.json(upsertRes.rows[0]);
   } catch (error) {
     await client.query("rollback");
     return res.status(500).json({ error: String(error.message || error) });
@@ -275,6 +430,19 @@ function normalizeReconStatus(value) {
   return "pending";
 }
 
+function normalizeSource(value) {
+  const raw = String(value || "").trim();
+  return raw ? raw.slice(0, 80) : "ui-sync";
+}
+
+async function insertScopeVersion(client, { scopeKey, noteGiles, noteJesse, status, eventType, source }) {
+  await client.query(
+    `insert into reconciliation_scope_versions (scope_key, note_giles, note_jesse, status, event_type, source)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [scopeKey, noteGiles, noteJesse, status, eventType, source]
+  );
+}
+
 async function ensureSchema() {
   if (!pool) {
     return;
@@ -297,6 +465,21 @@ async function ensureSchema() {
     )`
   );
   await pool.query(`create index if not exists idx_reconciliation_scopes_updated_at on reconciliation_scopes (updated_at desc)`);
+  await pool.query(
+    `create table if not exists reconciliation_scope_versions (
+      id bigserial primary key,
+      scope_key text not null,
+      note_giles text,
+      note_jesse text,
+      status text not null default 'pending',
+      event_type text not null default 'update',
+      source text not null default 'ui-sync',
+      created_at timestamptz not null default now(),
+      constraint reconciliation_scope_versions_status_check check (status in ('pending', 'waiting-giles', 'waiting-jesse', 'reconciled')),
+      constraint reconciliation_scope_versions_event_type_check check (event_type in ('create', 'update', 'delete', 'restore'))
+    )`
+  );
+  await pool.query(`create index if not exists idx_reconciliation_scope_versions_scope_id on reconciliation_scope_versions (scope_key, id desc)`);
 }
 
 async function start() {
