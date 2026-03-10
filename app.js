@@ -8,6 +8,7 @@ const INITIAL_RECON_KEY = "finance_os_initial_reconciliation_v1";
 const INITIAL_RECON_META_KEY = "finance_os_initial_reconciliation_meta_v1";
 const INITIAL_RECON_RANGE_START = "2025-06-01";
 const INITIAL_RECON_RANGE_END = "2026-02-28";
+const AUTO_SYNC_DEBOUNCE_MS = 1600;
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -86,6 +87,10 @@ const RECON_STATUS_OPTIONS = [
   }
 ];
 const RECON_STATUS_LOOKUP = Object.fromEntries(RECON_STATUS_OPTIONS.map((item) => [item.value, item]));
+let autoSyncTimer = null;
+let autoSyncReason = "";
+let syncInFlight = false;
+let pullInFlight = false;
 
 const state = {
   transactions: [],
@@ -132,6 +137,7 @@ const els = {
   apiUrlInput: document.getElementById("apiUrlInput"),
   syncBtn: document.getElementById("syncBtn"),
   pullBtn: document.getElementById("pullBtn"),
+  syncStatusText: document.getElementById("syncStatusText"),
   searchInput: document.getElementById("searchInput"),
   reviewFilter: document.getElementById("reviewFilter"),
   dateFromInput: document.getElementById("dateFromInput"),
@@ -196,6 +202,12 @@ function init() {
   refreshDerivedData();
   bindEvents();
   render();
+  if (getApiBaseUrl()) {
+    setSyncStatus("API connected. Pulling latest data...", "warn");
+    void pullFromApi({ silent: true, source: "auto-load" });
+  } else {
+    setSyncStatus("Auto-sync idle. Set API URL to enable.", "warn");
+  }
 }
 
 function bindEvents() {
@@ -219,8 +231,12 @@ function bindEvents() {
   }
   els.clearBtn.addEventListener("click", handleClear);
   els.downloadTemplateBtn.addEventListener("click", downloadTemplate);
-  els.syncBtn.addEventListener("click", syncToApi);
-  els.pullBtn.addEventListener("click", pullFromApi);
+  els.syncBtn.addEventListener("click", () => {
+    void syncToApi({ source: "manual" });
+  });
+  els.pullBtn.addEventListener("click", () => {
+    void pullFromApi({ source: "manual" });
+  });
   if (els.saveReconNoteBtn) {
     els.saveReconNoteBtn.addEventListener("click", handleSaveReconNoteClick);
   }
@@ -239,7 +255,7 @@ function bindEvents() {
   if (els.clearInitialReconBtn) {
     els.clearInitialReconBtn.addEventListener("click", handleClearInitialReconClick);
   }
-  els.apiUrlInput.addEventListener("change", persistApiUrl);
+  els.apiUrlInput.addEventListener("change", handleApiUrlChange);
   els.searchInput.addEventListener("input", render);
   els.reviewFilter.addEventListener("change", render);
   els.dateFromInput.addEventListener("change", render);
@@ -400,6 +416,7 @@ function importFromSelectedFile({ importMonthKey = null, idScopeKey = null, sele
     refreshDerivedData();
     persist();
     render();
+    scheduleAutoSync("import");
   };
   reader.readAsText(file);
 }
@@ -414,6 +431,7 @@ function handleClear() {
   persistSelectedMonth();
   persist();
   render();
+  setSyncStatus("Local browser data cleared. API data remains unchanged.", "warn");
 }
 
 function parseCSV(text) {
@@ -1915,6 +1933,7 @@ function onCellChange(event) {
   refreshDerivedData();
   persist();
   render();
+  scheduleAutoSync("edit");
 }
 
 function downloadTemplate() {
@@ -1968,21 +1987,96 @@ function getApiBaseUrl() {
   return (els.apiUrlInput.value || "").trim().replace(/\/+$/, "");
 }
 
-async function syncToApi() {
+function setSyncStatus(message, tone = "") {
+  if (!els.syncStatusText) {
+    return;
+  }
+  els.syncStatusText.textContent = message;
+  if (tone) {
+    els.syncStatusText.setAttribute("data-tone", tone);
+  } else {
+    els.syncStatusText.removeAttribute("data-tone");
+  }
+}
+
+function formatClockTime(value = new Date()) {
+  return value.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function scheduleAutoSync(reason = "update") {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
-    alert("Enter API URL first.");
+    setSyncStatus("Auto-sync paused: add API URL.", "warn");
+    return;
+  }
+  if (!state.transactions.length) {
+    setSyncStatus("Auto-sync paused: no transactions loaded.", "warn");
+    return;
+  }
+  if (pullInFlight) {
     return;
   }
 
+  if (autoSyncTimer) {
+    clearTimeout(autoSyncTimer);
+  }
+
+  autoSyncReason = reason;
+  setSyncStatus("Auto-sync queued...", "warn");
+  autoSyncTimer = setTimeout(() => {
+    autoSyncTimer = null;
+    void syncToApi({ silent: true, source: `auto-${autoSyncReason}` });
+  }, AUTO_SYNC_DEBOUNCE_MS);
+}
+
+function handleApiUrlChange() {
+  persistApiUrl();
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    setSyncStatus("Auto-sync idle. Set API URL to enable.", "warn");
+    return;
+  }
+  setSyncStatus("API URL saved. Pulling latest data...", "warn");
+  void pullFromApi({ silent: true, source: "api-url-change" });
+}
+
+async function syncToApi({ silent = false, source = "manual" } = {}) {
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    if (silent) {
+      setSyncStatus("Auto-sync paused: add API URL.", "warn");
+      return false;
+    }
+    alert("Enter API URL first.");
+    return false;
+  }
+
+  if (syncInFlight) {
+    if (!silent) {
+      alert("Sync already in progress.");
+    }
+    return false;
+  }
+
   try {
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    syncInFlight = true;
+    setSyncStatus(silent ? "Auto-syncing to API..." : "Syncing to API...", "warn");
+
     const validTransactions = state.transactions
       .map((t) => ({ ...t, txDate: parseDateToISO(t.date) }))
       .filter((t) => Boolean(t.txDate));
 
     if (!validTransactions.length) {
+      if (silent) {
+        setSyncStatus("Auto-sync skipped: no valid dated transactions.", "warn");
+        return false;
+      }
       alert("No valid dated transactions to sync. Check your CSV date format.");
-      return;
+      return false;
     }
 
     const payload = {
@@ -2011,20 +2105,45 @@ async function syncToApi() {
 
     const json = await res.json();
     persistApiUrl();
-    alert(`Synced ${json.inserted || 0} transaction(s) to API.`);
+    setSyncStatus(`Last sync ${formatClockTime()} (${json.inserted || 0} rows).`, "ok");
+    if (!silent) {
+      alert(`Synced ${json.inserted || 0} transaction(s) to API.`);
+    }
+    return true;
   } catch (error) {
-    alert(`Sync failed: ${String(error.message || error)}`);
+    const message = String(error.message || error);
+    setSyncStatus(`Sync failed (${source}): ${message}`, "error");
+    if (!silent) {
+      alert(`Sync failed: ${message}`);
+    }
+    return false;
+  } finally {
+    syncInFlight = false;
   }
 }
 
-async function pullFromApi() {
+async function pullFromApi({ silent = false, source = "manual" } = {}) {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
+    if (silent) {
+      setSyncStatus("Auto-pull paused: add API URL.", "warn");
+      return false;
+    }
     alert("Enter API URL first.");
-    return;
+    return false;
+  }
+
+  if (pullInFlight) {
+    if (!silent) {
+      alert("Pull already in progress.");
+    }
+    return false;
   }
 
   try {
+    pullInFlight = true;
+    setSyncStatus(silent ? "Auto-pulling latest from API..." : "Pulling latest from API...", "warn");
+
     const res = await fetch(`${baseUrl}/transactions`);
     if (!res.ok) {
       const err = await res.text();
@@ -2068,9 +2187,20 @@ async function pullFromApi() {
     persistApiUrl();
     persist();
     render();
-    alert(`Pulled ${imported.length} transaction(s) from API.`);
+    setSyncStatus(`Last pull ${formatClockTime()} (${imported.length} rows).`, "ok");
+    if (!silent) {
+      alert(`Pulled ${imported.length} transaction(s) from API.`);
+    }
+    return true;
   } catch (error) {
-    alert(`Pull failed: ${String(error.message || error)}`);
+    const message = String(error.message || error);
+    setSyncStatus(`Pull failed (${source}): ${message}`, "error");
+    if (!silent) {
+      alert(`Pull failed: ${message}`);
+    }
+    return false;
+  } finally {
+    pullInFlight = false;
   }
 }
 
