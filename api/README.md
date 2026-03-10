@@ -6,6 +6,8 @@ Minimal Express API for Render + Supabase.
 - `GET /health`
 - `GET /transactions`
 - `POST /transactions/bulk`
+- `GET /reconciliation-scopes`
+- `POST /reconciliation-scopes/bulk`
 
 ## Local run
 ```bash

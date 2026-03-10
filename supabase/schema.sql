@@ -19,3 +19,15 @@ create index if not exists idx_transactions_tx_date on transactions (tx_date des
 create index if not exists idx_transactions_category on transactions (category);
 create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key);
 create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null;
+
+create table if not exists reconciliation_scopes (
+  scope_key text primary key,
+  note_giles text,
+  note_jesse text,
+  status text not null default 'pending',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint reconciliation_scopes_status_check check (status in ('pending', 'waiting-giles', 'waiting-jesse', 'reconciled'))
+);
+
+create index if not exists idx_reconciliation_scopes_updated_at on reconciliation_scopes (updated_at desc);

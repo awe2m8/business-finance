@@ -49,6 +49,23 @@ app.get("/transactions", async (_req, res) => {
   }
 });
 
+app.get("/reconciliation-scopes", async (_req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `select scope_key, note_giles, note_jesse, status, updated_at
+       from reconciliation_scopes
+       order by scope_key asc`
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
 app.post("/transactions/bulk", async (req, res) => {
   if (!pool) {
     return res.status(500).json({ error: "DATABASE_URL is required" });
@@ -96,6 +113,63 @@ app.post("/transactions/bulk", async (req, res) => {
 
     await client.query("commit");
     return res.status(201).json({ inserted });
+  } catch (error) {
+    await client.query("rollback");
+    return res.status(500).json({ error: String(error.message || error) });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/reconciliation-scopes/bulk", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) {
+    return res.status(400).json({ error: "items[] is required" });
+  }
+
+  const client = await pool.connect();
+  let upserted = 0;
+  let deleted = 0;
+
+  try {
+    await client.query("begin");
+
+    for (const item of items) {
+      const scopeKey = normalizeScopeKey(item.scope_key || item.scopeKey);
+      const noteGiles = normalizeOptionalText(item.note_giles ?? item.noteGiles);
+      const noteJesse = normalizeOptionalText(item.note_jesse ?? item.noteJesse);
+      const status = normalizeReconStatus(item.status);
+
+      if (!scopeKey) {
+        continue;
+      }
+
+      const shouldClear = !noteGiles && !noteJesse && status === "pending";
+      if (shouldClear) {
+        const result = await client.query(`delete from reconciliation_scopes where scope_key = $1`, [scopeKey]);
+        deleted += Number(result.rowCount || 0);
+        continue;
+      }
+
+      await client.query(
+        `insert into reconciliation_scopes (scope_key, note_giles, note_jesse, status)
+         values ($1, $2, $3, $4)
+         on conflict (scope_key) do update
+           set note_giles = excluded.note_giles,
+               note_jesse = excluded.note_jesse,
+               status = excluded.status,
+               updated_at = now()`,
+        [scopeKey, noteGiles, noteJesse, status]
+      );
+      upserted += 1;
+    }
+
+    await client.query("commit");
+    return res.status(201).json({ upserted, deleted });
   } catch (error) {
     await client.query("rollback");
     return res.status(500).json({ error: String(error.message || error) });
@@ -172,6 +246,35 @@ function toIsoDate(year, month, day) {
   return `${String(year)}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function normalizeScopeKey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  if (raw === "__all_months__") {
+    return raw;
+  }
+  const monthKey = normalizeMonthKey(raw);
+  if (monthKey) {
+    return monthKey;
+  }
+  return raw.slice(0, 128);
+}
+
+function normalizeOptionalText(value) {
+  const raw = value === null || value === undefined ? "" : String(value);
+  const trimmed = raw.trim();
+  return trimmed ? trimmed.slice(0, 4000) : null;
+}
+
+function normalizeReconStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "pending" || normalized === "waiting-giles" || normalized === "waiting-jesse" || normalized === "reconciled") {
+    return normalized;
+  }
+  return "pending";
+}
+
 async function ensureSchema() {
   if (!pool) {
     return;
@@ -181,6 +284,19 @@ async function ensureSchema() {
   await pool.query(`alter table transactions add column if not exists client_tx_id text`);
   await pool.query(`create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key)`);
   await pool.query(`create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null`);
+
+  await pool.query(
+    `create table if not exists reconciliation_scopes (
+      scope_key text primary key,
+      note_giles text,
+      note_jesse text,
+      status text not null default 'pending',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      constraint reconciliation_scopes_status_check check (status in ('pending', 'waiting-giles', 'waiting-jesse', 'reconciled'))
+    )`
+  );
+  await pool.query(`create index if not exists idx_reconciliation_scopes_updated_at on reconciliation_scopes (updated_at desc)`);
 }
 
 async function start() {

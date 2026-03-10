@@ -936,11 +936,7 @@ function hasReconNotes(entry) {
 
 function setReconNotesForScope(scopeKey, notesEntry) {
   const normalized = normalizeReconNotesEntry(notesEntry);
-  if (hasReconNotes(normalized)) {
-    state.reconciliationNotes[scopeKey] = normalized;
-  } else {
-    delete state.reconciliationNotes[scopeKey];
-  }
+  state.reconciliationNotes[scopeKey] = normalized;
   persistReconciliationNotes();
 }
 
@@ -1016,6 +1012,7 @@ function handleReconNoteInput() {
   if (els.reconNoteStatus) {
     els.reconNoteStatus.textContent = hasReconNotes(notesEntry) ? "Saved for this scope" : "No note yet";
   }
+  scheduleAutoSync("recon-notes");
 }
 
 function handleSaveReconNoteClick() {
@@ -1032,12 +1029,14 @@ function handleSaveReconNoteClick() {
     els.reconNoteStatus.textContent = hasReconNotes(notesEntry) ? "Saved for this scope" : "No note yet";
   }
   renderReconStatus(scopeKey);
+  scheduleAutoSync("recon-notes-save");
 }
 
 function handleReconStatusChange(event) {
   const scopeKey = getReconNoteScopeKey();
   setReconStatusForScope(scopeKey, event.target.value);
   renderReconStatus(scopeKey);
+  scheduleAutoSync("recon-status");
 }
 
 async function handleUploadInitialReconClick() {
@@ -2003,14 +2002,63 @@ function formatClockTime(value = new Date()) {
   return value.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
 }
 
+function getReconciliationScopeKeys() {
+  return Array.from(
+    new Set([...Object.keys(state.reconciliationNotes || {}), ...Object.keys(state.reconciliationStatuses || {})])
+  );
+}
+
+function buildReconciliationScopeItems() {
+  return getReconciliationScopeKeys()
+    .map((scopeKey) => {
+      const normalizedScopeKey = String(scopeKey || "").trim();
+      if (!normalizedScopeKey) {
+        return null;
+      }
+      const notes = normalizeReconNotesEntry(state.reconciliationNotes[normalizedScopeKey]);
+      return {
+        scope_key: normalizedScopeKey,
+        note_giles: String(notes.giles || "").trim(),
+        note_jesse: String(notes.jesse || "").trim(),
+        status: getReconStatusForScope(normalizedScopeKey)
+      };
+    })
+    .filter(Boolean);
+}
+
+function applyRemoteReconciliationScopes(rows) {
+  const nextNotes = {};
+  const nextStatuses = {};
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const scopeKey = String(row.scope_key || "").trim();
+    if (!scopeKey) {
+      return;
+    }
+    nextNotes[scopeKey] = normalizeReconNotesEntry({
+      giles: row.note_giles,
+      jesse: row.note_jesse
+    });
+    nextStatuses[scopeKey] = {
+      value: normalizeReconStatus(row.status),
+      updatedAt: row.updated_at || new Date().toISOString()
+    };
+  });
+
+  state.reconciliationNotes = nextNotes;
+  state.reconciliationStatuses = nextStatuses;
+  state.activeNoteScopeKey = null;
+  persistReconciliationNotes();
+  persistReconciliationStatuses();
+}
+
 function scheduleAutoSync(reason = "update") {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
     setSyncStatus("Auto-sync paused: add API URL.", "warn");
     return;
   }
-  if (!state.transactions.length) {
-    setSyncStatus("Auto-sync paused: no transactions loaded.", "warn");
+  if (!state.transactions.length && !buildReconciliationScopeItems().length) {
+    setSyncStatus("Auto-sync paused: nothing to sync yet.", "warn");
     return;
   }
   if (pullInFlight) {
@@ -2069,45 +2117,67 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
     const validTransactions = state.transactions
       .map((t) => ({ ...t, txDate: parseDateToISO(t.date) }))
       .filter((t) => Boolean(t.txDate));
+    const scopeItems = buildReconciliationScopeItems();
 
-    if (!validTransactions.length) {
-      if (silent) {
-        setSyncStatus("Auto-sync skipped: no valid dated transactions.", "warn");
-        return false;
-      }
-      alert("No valid dated transactions to sync. Check your CSV date format.");
+    if (!validTransactions.length && !scopeItems.length) {
+      setSyncStatus("Sync skipped: nothing to sync.", "warn");
       return false;
     }
 
-    const payload = {
-      items: validTransactions.map((t) => ({
-        client_tx_id: String(t.id),
-        tx_date: t.txDate,
-        description: t.description,
-        amount_cents: Math.round(t.amount * 100),
-        category: t.category,
-        partner_split_pct: t.partnerSplitPct,
-        statement_month_key: normalizeMonthKey(t.statementMonthKey),
-        source: "ui-import"
-      }))
-    };
+    let txInserted = 0;
+    if (validTransactions.length) {
+      const payload = {
+        items: validTransactions.map((t) => ({
+          client_tx_id: String(t.id),
+          tx_date: t.txDate,
+          description: t.description,
+          amount_cents: Math.round(t.amount * 100),
+          category: t.category,
+          partner_split_pct: t.partnerSplitPct,
+          statement_month_key: normalizeMonthKey(t.statementMonthKey),
+          source: "ui-import"
+        }))
+      };
 
-    const res = await fetch(`${baseUrl}/transactions/bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+      const res = await fetch(`${baseUrl}/transactions/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || `Sync failed (${res.status})`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `Transaction sync failed (${res.status})`);
+      }
+
+      const json = await res.json();
+      txInserted = Number(json.inserted || 0);
     }
 
-    const json = await res.json();
+    let scopesUpserted = 0;
+    let scopesDeleted = 0;
+    if (scopeItems.length) {
+      const scopeRes = await fetch(`${baseUrl}/reconciliation-scopes/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: scopeItems })
+      });
+      if (!scopeRes.ok) {
+        const err = await scopeRes.text();
+        throw new Error(err || `Notes/status sync failed (${scopeRes.status})`);
+      }
+      const scopeJson = await scopeRes.json();
+      scopesUpserted = Number(scopeJson.upserted || 0);
+      scopesDeleted = Number(scopeJson.deleted || 0);
+    }
+
     persistApiUrl();
-    setSyncStatus(`Last sync ${formatClockTime()} (${json.inserted || 0} rows).`, "ok");
+    setSyncStatus(
+      `Last sync ${formatClockTime()} (tx ${txInserted}, scopes ${scopesUpserted}, cleared ${scopesDeleted}).`,
+      "ok"
+    );
     if (!silent) {
-      alert(`Synced ${json.inserted || 0} transaction(s) to API.`);
+      alert(`Synced tx: ${txInserted}, shared notes/status: ${scopesUpserted}, cleared scopes: ${scopesDeleted}.`);
     }
     return true;
   } catch (error) {
@@ -2144,13 +2214,13 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
     pullInFlight = true;
     setSyncStatus(silent ? "Auto-pulling latest from API..." : "Pulling latest from API...", "warn");
 
-    const res = await fetch(`${baseUrl}/transactions`);
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || `Pull failed (${res.status})`);
+    const txRes = await fetch(`${baseUrl}/transactions`);
+    if (!txRes.ok) {
+      const err = await txRes.text();
+      throw new Error(err || `Pull failed (${txRes.status})`);
     }
 
-    const rows = await res.json();
+    const rows = await txRes.json();
     const existingIdByLegacyKey = new Map();
     state.transactions.forEach((tx) => {
       const key = buildLegacyMatchKey(tx.date, tx.description, tx.amount, tx.statementMonthKey);
@@ -2184,12 +2254,36 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
 
     upsertTransactions(imported);
     refreshDerivedData();
+
+    let pulledScopes = 0;
+    let scopeWarning = "";
+    try {
+      const scopesRes = await fetch(`${baseUrl}/reconciliation-scopes`);
+      if (scopesRes.ok) {
+        const scopeRows = await scopesRes.json();
+        applyRemoteReconciliationScopes(scopeRows);
+        pulledScopes = Array.isArray(scopeRows) ? scopeRows.length : 0;
+      } else {
+        scopeWarning = `notes/status skipped (${scopesRes.status})`;
+      }
+    } catch (_error) {
+      scopeWarning = "notes/status skipped (network error)";
+    }
+
     persistApiUrl();
     persist();
     render();
-    setSyncStatus(`Last pull ${formatClockTime()} (${imported.length} rows).`, "ok");
+    if (scopeWarning) {
+      setSyncStatus(`Last pull ${formatClockTime()} (tx ${imported.length}, ${scopeWarning}).`, "warn");
+    } else {
+      setSyncStatus(`Last pull ${formatClockTime()} (tx ${imported.length}, scopes ${pulledScopes}).`, "ok");
+    }
     if (!silent) {
-      alert(`Pulled ${imported.length} transaction(s) from API.`);
+      alert(
+        scopeWarning
+          ? `Pulled ${imported.length} transaction(s). ${scopeWarning}.`
+          : `Pulled ${imported.length} transaction(s) and ${pulledScopes} shared scope(s).`
+      );
     }
     return true;
   } catch (error) {
