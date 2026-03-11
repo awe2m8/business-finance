@@ -9,6 +9,9 @@ const INITIAL_RECON_META_KEY = "finance_os_initial_reconciliation_meta_v1";
 const INITIAL_RECON_RANGE_START = "2025-06-01";
 const INITIAL_RECON_RANGE_END = "2026-02-28";
 const AUTO_SYNC_DEBOUNCE_MS = 1600;
+const AUTO_PULL_INTERVAL_MS = 30000;
+const AUTO_PULL_MIN_GAP_MS = 8000;
+const DEFAULT_API_URL = "https://business-finance-lhyh.onrender.com";
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -91,6 +94,8 @@ let autoSyncTimer = null;
 let autoSyncReason = "";
 let syncInFlight = false;
 let pullInFlight = false;
+let autoPullTimer = null;
+let lastAutoPullAt = 0;
 
 const state = {
   transactions: [],
@@ -200,17 +205,23 @@ function init() {
   state.reconciliationStatuses = loadStoredObject(RECON_STATUS_KEY, {});
   state.initialReconciliation = loadStoredArray(INITIAL_RECON_KEY);
   state.initialReconciliationMeta = loadStoredObject(INITIAL_RECON_META_KEY, null);
+  const savedApiUrl = sanitizeApiUrl(localStorage.getItem(API_URL_KEY) || "");
+  const defaultApiUrl = sanitizeApiUrl(DEFAULT_API_URL);
+  const initialApiUrl = savedApiUrl || defaultApiUrl;
   initControlsPanel();
   initSectionPanels();
   els.importMonthInput.value = getCurrentMonthKey();
-  els.apiUrlInput.value = localStorage.getItem(API_URL_KEY) || "";
+  els.apiUrlInput.value = initialApiUrl;
+  persistApiUrl();
   refreshDerivedData();
   bindEvents();
   render();
   if (getApiBaseUrl()) {
-    setSyncStatus("API connected. Pulling latest data...", "warn");
-    void pullFromApi({ silent: true, source: "auto-load" });
+    startAutoPullLoop();
+    setSyncStatus("API connected. Auto-sync active.", "warn");
+    void triggerAutoPull("auto-load", { force: true });
   } else {
+    stopAutoPullLoop();
     setSyncStatus("Auto-sync idle. Set API URL to enable.", "warn");
   }
 }
@@ -267,6 +278,9 @@ function bindEvents() {
     els.clearInitialReconBtn.addEventListener("click", handleClearInitialReconClick);
   }
   els.apiUrlInput.addEventListener("change", handleApiUrlChange);
+  window.addEventListener("focus", handleWindowFocus);
+  window.addEventListener("online", handleOnline);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   els.searchInput.addEventListener("input", render);
   els.reviewFilter.addEventListener("change", render);
   els.dateFromInput.addEventListener("change", render);
@@ -814,7 +828,13 @@ function persist() {
 }
 
 function persistApiUrl() {
-  localStorage.setItem(API_URL_KEY, els.apiUrlInput.value.trim());
+  const normalized = sanitizeApiUrl(els.apiUrlInput.value);
+  els.apiUrlInput.value = normalized;
+  if (!normalized) {
+    localStorage.removeItem(API_URL_KEY);
+    return;
+  }
+  localStorage.setItem(API_URL_KEY, normalized);
 }
 
 function persistSelectedMonth() {
@@ -2213,8 +2233,24 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function sanitizeApiUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeServerUpdatedAt(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
 function getApiBaseUrl() {
-  return (els.apiUrlInput.value || "").trim().replace(/\/+$/, "");
+  return sanitizeApiUrl(els.apiUrlInput.value || "");
 }
 
 function setSyncStatus(message, tone = "") {
@@ -2310,15 +2346,69 @@ function scheduleAutoSync(reason = "update") {
   }, AUTO_SYNC_DEBOUNCE_MS);
 }
 
-function handleApiUrlChange() {
-  persistApiUrl();
+function stopAutoPullLoop() {
+  if (autoPullTimer) {
+    clearInterval(autoPullTimer);
+    autoPullTimer = null;
+  }
+}
+
+function startAutoPullLoop() {
+  stopAutoPullLoop();
+  if (!getApiBaseUrl()) {
+    return;
+  }
+  autoPullTimer = setInterval(() => {
+    void triggerAutoPull("auto-interval");
+  }, AUTO_PULL_INTERVAL_MS);
+}
+
+async function triggerAutoPull(source = "auto", { force = false } = {}) {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
+    stopAutoPullLoop();
+    return false;
+  }
+  if (syncInFlight || pullInFlight || autoSyncTimer) {
+    return false;
+  }
+  if (source === "auto-interval" && document.visibilityState === "hidden") {
+    return false;
+  }
+  const now = Date.now();
+  if (!force && now - lastAutoPullAt < AUTO_PULL_MIN_GAP_MS) {
+    return false;
+  }
+  lastAutoPullAt = now;
+  return pullFromApi({ silent: true, source });
+}
+
+function handleWindowFocus() {
+  void triggerAutoPull("auto-focus");
+}
+
+function handleOnline() {
+  void triggerAutoPull("auto-online", { force: true });
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    void triggerAutoPull("auto-visible");
+  }
+}
+
+function handleApiUrlChange() {
+  const normalized = sanitizeApiUrl(els.apiUrlInput.value);
+  els.apiUrlInput.value = normalized;
+  persistApiUrl();
+  if (!normalized) {
+    stopAutoPullLoop();
     setSyncStatus("Auto-sync idle. Set API URL to enable.", "warn");
     return;
   }
-  setSyncStatus("API URL saved. Pulling latest data...", "warn");
-  void pullFromApi({ silent: true, source: "api-url-change" });
+  startAutoPullLoop();
+  setSyncStatus("API URL saved. Auto-sync active.", "warn");
+  void triggerAutoPull("api-url-change", { force: true });
 }
 
 async function syncToApi({ silent = false, source = "manual" } = {}) {
@@ -2335,6 +2425,12 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
   if (syncInFlight) {
     if (!silent) {
       alert("Sync already in progress.");
+    }
+    return false;
+  }
+  if (pullInFlight) {
+    if (!silent) {
+      alert("Pull in progress. Try sync again in a moment.");
     }
     return false;
   }
@@ -2358,6 +2454,8 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
     }
 
     let txInserted = 0;
+    let txUpdated = 0;
+    let txStaleSkipped = 0;
     if (validTransactions.length) {
       const payload = {
         items: validTransactions.map((t) => ({
@@ -2368,7 +2466,8 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
           category: t.category,
           partner_split_pct: t.partnerSplitPct,
           statement_month_key: normalizeMonthKey(t.statementMonthKey),
-          source: "ui-import"
+          source: "ui-import",
+          known_updated_at: normalizeServerUpdatedAt(t.serverUpdatedAt)
         }))
       };
 
@@ -2385,6 +2484,8 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
 
       const json = await res.json();
       txInserted = Number(json.inserted || 0);
+      txUpdated = Number(json.updated || 0);
+      txStaleSkipped = Number(json.stale_skipped || 0);
     }
 
     let scopesUpserted = 0;
@@ -2406,11 +2507,13 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
 
     persistApiUrl();
     setSyncStatus(
-      `Last sync ${formatClockTime()} (tx ${txInserted}, scopes ${scopesUpserted}, cleared ${scopesDeleted}).`,
+      `Last sync ${formatClockTime()} (new ${txInserted}, updated ${txUpdated}, skipped ${txStaleSkipped}, scopes ${scopesUpserted}, cleared ${scopesDeleted}).`,
       "ok"
     );
     if (!silent) {
-      alert(`Synced tx: ${txInserted}, shared notes/status: ${scopesUpserted}, cleared scopes: ${scopesDeleted}.`);
+      alert(
+        `Synced tx: new ${txInserted}, updated ${txUpdated}, skipped ${txStaleSkipped}, shared notes/status: ${scopesUpserted}, cleared scopes: ${scopesDeleted}.`
+      );
     }
     void pullReconciliationHistory(getReconNoteScopeKey(), { force: true, silent: true });
     return true;
@@ -2440,6 +2543,12 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
   if (pullInFlight) {
     if (!silent) {
       alert("Pull already in progress.");
+    }
+    return false;
+  }
+  if (syncInFlight) {
+    if (!silent) {
+      alert("Sync in progress. Try pull again in a moment.");
     }
     return false;
   }
@@ -2482,6 +2591,7 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
         category,
         partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
         statementMonthKey,
+        serverUpdatedAt: normalizeServerUpdatedAt(row.updated_at),
         status: category === "Uncategorized" ? "needs-review" : "clean"
       };
     });

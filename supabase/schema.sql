@@ -9,16 +9,19 @@ create table if not exists transactions (
   statement_month_key text,
   source text not null default 'manual',
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (tx_date, description, amount_cents)
 );
 
 alter table transactions add column if not exists statement_month_key text;
 alter table transactions add column if not exists client_tx_id text;
+alter table transactions add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists idx_transactions_tx_date on transactions (tx_date desc);
 create index if not exists idx_transactions_category on transactions (category);
 create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key);
 create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null;
+create index if not exists idx_transactions_updated_at on transactions (updated_at desc);
 
 create table if not exists reconciliation_scopes (
   scope_key text primary key,

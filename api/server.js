@@ -38,9 +38,9 @@ app.get("/transactions", async (_req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `select id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at
+      `select id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at, updated_at
        from transactions
-       order by tx_date desc, created_at desc
+       order by tx_date desc, updated_at desc, created_at desc
        limit 1000`
     );
     return res.json(rows);
@@ -106,6 +106,8 @@ app.post("/transactions/bulk", async (req, res) => {
 
   const client = await pool.connect();
   let inserted = 0;
+  let updated = 0;
+  let staleSkipped = 0;
 
   try {
     await client.query("begin");
@@ -119,28 +121,59 @@ app.post("/transactions/bulk", async (req, res) => {
       const partnerSplitPct = Number(item.partner_split_pct ?? 50);
       const statementMonthKey = normalizeMonthKey(item.statement_month_key);
       const source = String(item.source || "manual");
+      const knownUpdatedAt = normalizeKnownUpdatedAt(item.known_updated_at ?? item.knownUpdatedAt);
 
       if (!txDate || !description || Number.isNaN(amount)) {
         continue;
       }
 
-      await client.query(
-        `insert into transactions (client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         on conflict (tx_date, description, amount_cents) do update
-           set client_tx_id = coalesce(transactions.client_tx_id, excluded.client_tx_id),
-               category = excluded.category,
-               partner_split_pct = excluded.partner_split_pct,
-               statement_month_key = excluded.statement_month_key,
-               source = excluded.source`,
-        [clientTxId, txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
+      const existingRes = await client.query(
+        `select id, updated_at
+         from transactions
+         where tx_date = $1 and description = $2 and amount_cents = $3
+         limit 1`,
+        [txDate, description, amount]
       );
+      const existing = existingRes.rows[0] || null;
 
-      inserted += 1;
+      if (!existing) {
+        await client.query(
+          `insert into transactions (client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [clientTxId, txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
+        );
+        inserted += 1;
+        continue;
+      }
+
+      if (!knownUpdatedAt) {
+        staleSkipped += 1;
+        continue;
+      }
+
+      const knownUpdatedTs = new Date(knownUpdatedAt).getTime();
+      const currentUpdatedTs = existing.updated_at instanceof Date ? existing.updated_at.getTime() : new Date(existing.updated_at).getTime();
+      if (!Number.isFinite(knownUpdatedTs) || !Number.isFinite(currentUpdatedTs) || knownUpdatedTs < currentUpdatedTs) {
+        staleSkipped += 1;
+        continue;
+      }
+
+      await client.query(
+        `update transactions
+         set client_tx_id = coalesce(transactions.client_tx_id, $2),
+             category = $3,
+             partner_split_pct = $4,
+             statement_month_key = $5,
+             source = $6,
+             updated_at = now()
+         where id = $1`,
+        [existing.id, clientTxId, category, partnerSplitPct, statementMonthKey, source]
+      );
+      updated += 1;
     }
 
     await client.query("commit");
-    return res.status(201).json({ inserted });
+    return res.status(201).json({ inserted, updated, stale_skipped: staleSkipped });
   } catch (error) {
     await client.query("rollback");
     return res.status(500).json({ error: String(error.message || error) });
@@ -435,6 +468,18 @@ function normalizeSource(value) {
   return raw ? raw.slice(0, 80) : "ui-sync";
 }
 
+function normalizeKnownUpdatedAt(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
 async function insertScopeVersion(client, { scopeKey, noteGiles, noteJesse, status, eventType, source }) {
   await client.query(
     `insert into reconciliation_scope_versions (scope_key, note_giles, note_jesse, status, event_type, source)
@@ -448,10 +493,30 @@ async function ensureSchema() {
     return;
   }
 
+  await pool.query(
+    `create table if not exists transactions (
+      id bigserial primary key,
+      client_tx_id text,
+      tx_date date not null,
+      description text not null,
+      amount_cents integer not null,
+      category text not null default 'Uncategorized',
+      partner_split_pct numeric(5,2) not null default 50,
+      statement_month_key text,
+      source text not null default 'manual',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (tx_date, description, amount_cents)
+    )`
+  );
   await pool.query(`alter table transactions add column if not exists statement_month_key text`);
   await pool.query(`alter table transactions add column if not exists client_tx_id text`);
+  await pool.query(`alter table transactions add column if not exists updated_at timestamptz not null default now()`);
+  await pool.query(`create index if not exists idx_transactions_tx_date on transactions (tx_date desc)`);
+  await pool.query(`create index if not exists idx_transactions_category on transactions (category)`);
   await pool.query(`create index if not exists idx_transactions_statement_month_key on transactions (statement_month_key)`);
   await pool.query(`create unique index if not exists idx_transactions_client_tx_id_unique on transactions (client_tx_id) where client_tx_id is not null`);
+  await pool.query(`create index if not exists idx_transactions_updated_at on transactions (updated_at desc)`);
 
   await pool.query(
     `create table if not exists reconciliation_scopes (

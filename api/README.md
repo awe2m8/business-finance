@@ -5,7 +5,7 @@ Minimal Express API for Render + Supabase.
 ## Endpoints
 - `GET /health`
 - `GET /transactions`
-- `POST /transactions/bulk`
+- `POST /transactions/bulk` (returns `inserted`, `updated`, `stale_skipped`)
 - `GET /reconciliation-scopes`
 - `POST /reconciliation-scopes/bulk`
 - `GET /reconciliation-scopes/:scopeKey/history`
