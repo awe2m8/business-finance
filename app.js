@@ -94,6 +94,7 @@ let autoSyncTimer = null;
 let autoSyncReason = "";
 let syncInFlight = false;
 let pullInFlight = false;
+let clearInFlight = false;
 let autoPullTimer = null;
 let lastAutoPullAt = 0;
 
@@ -1997,21 +1998,27 @@ function resetTransactionsState() {
 }
 
 async function clearAllTransactions({ source = "clear-all" } = {}) {
+  if (clearInFlight) {
+    return false;
+  }
+
   const count = state.transactions.length;
   const ok = confirm(`Delete all ${count} transaction(s) from All Months? This clears the full transaction set.`);
   if (!ok) {
     return false;
   }
 
+  resetTransactionsState();
+
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
-    resetTransactionsState();
     setSyncStatus("All transactions cleared locally. Add API URL to clear shared data too.", "warn");
     return true;
   }
 
   try {
-    setSyncStatus("Clearing all transactions from API...", "warn");
+    clearInFlight = true;
+    setSyncStatus("All transactions cleared locally. Clearing shared API data...", "warn");
     const res = await fetch(`${baseUrl}/transactions/clear`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2022,14 +2029,15 @@ async function clearAllTransactions({ source = "clear-all" } = {}) {
       throw new Error(err || `Transaction clear failed (${res.status})`);
     }
     const json = await res.json();
-    resetTransactionsState();
     setSyncStatus(`All transactions cleared ${formatClockTime()} (${Number(json.deleted || 0)} deleted).`, "ok");
     return true;
   } catch (error) {
     const message = String(error.message || error);
-    setSyncStatus(`Transaction clear failed: ${message}`, "error");
-    alert(`Transaction clear failed: ${message}`);
+    setSyncStatus(`Local clear done. Shared clear failed: ${message}`, "error");
+    alert(`Local clear completed, but shared API clear failed: ${message}. Shared data may reappear on refresh until the server clear succeeds.`);
     return false;
+  } finally {
+    clearInFlight = false;
   }
 }
 
@@ -2420,7 +2428,7 @@ async function triggerAutoPull(source = "auto", { force = false } = {}) {
     stopAutoPullLoop();
     return false;
   }
-  if (syncInFlight || pullInFlight || autoSyncTimer) {
+  if (syncInFlight || pullInFlight || clearInFlight || autoSyncTimer) {
     return false;
   }
   if (source === "auto-interval" && document.visibilityState === "hidden") {
@@ -2476,6 +2484,12 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
   if (syncInFlight) {
     if (!silent) {
       alert("Sync already in progress.");
+    }
+    return false;
+  }
+  if (clearInFlight) {
+    if (!silent) {
+      alert("Clear in progress. Try sync again in a moment.");
     }
     return false;
   }
@@ -2594,6 +2608,12 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
   if (pullInFlight) {
     if (!silent) {
       alert("Pull already in progress.");
+    }
+    return false;
+  }
+  if (clearInFlight) {
+    if (!silent) {
+      alert("Clear in progress. Try pull again in a moment.");
     }
     return false;
   }
