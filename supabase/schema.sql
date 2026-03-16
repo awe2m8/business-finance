@@ -49,3 +49,20 @@ create table if not exists reconciliation_scope_versions (
 );
 
 create index if not exists idx_reconciliation_scope_versions_scope_id on reconciliation_scope_versions (scope_key, id desc);
+
+create table if not exists reconciliation_attachments (
+  id bigserial primary key,
+  scope_key text not null,
+  side text not null,
+  kind text not null,
+  title text,
+  asset_url text not null,
+  mime_type text,
+  file_name text,
+  created_at timestamptz not null default now(),
+  constraint reconciliation_attachments_side_check check (side in ('giles', 'jesse')),
+  constraint reconciliation_attachments_kind_check check (kind in ('image', 'link'))
+);
+
+create index if not exists idx_reconciliation_attachments_scope_created on reconciliation_attachments (scope_key, created_at desc, id desc);
+create index if not exists idx_reconciliation_attachments_scope_side on reconciliation_attachments (scope_key, side);

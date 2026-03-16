@@ -13,6 +13,8 @@ const AUTO_PULL_INTERVAL_MS = 30000;
 const AUTO_PULL_MIN_GAP_MS = 8000;
 const DEFAULT_API_URL = "https://business-finance-lhyh.onrender.com";
 const SHORT_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const RECON_ATTACHMENT_SIDES = ["giles", "jesse"];
+const MAX_RECON_ATTACHMENT_FILE_SIZE = 5 * 1024 * 1024;
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -99,6 +101,7 @@ let pullInFlight = false;
 let clearInFlight = false;
 let autoPullTimer = null;
 let lastAutoPullAt = 0;
+const reconAttachmentInFlightBySide = Object.fromEntries(RECON_ATTACHMENT_SIDES.map((side) => [side, false]));
 
 const state = {
   transactions: [],
@@ -108,6 +111,8 @@ const state = {
   reconciliationStatuses: {},
   reconciliationHistoryByScope: {},
   reconciliationHistoryFetchedAt: {},
+  reconciliationAttachmentsByScope: {},
+  reconciliationAttachmentsFetchedAt: {},
   activeNoteScopeKey: null,
   initialReconciliation: [],
   initialReconciliationMeta: null
@@ -181,6 +186,20 @@ const els = {
   reconNoteScopeLabel: document.getElementById("reconNoteScopeLabel"),
   gilesNoteInput: document.getElementById("gilesNoteInput"),
   jesseNoteInput: document.getElementById("jesseNoteInput"),
+  gilesAttachmentFileInput: document.getElementById("gilesAttachmentFileInput"),
+  jesseAttachmentFileInput: document.getElementById("jesseAttachmentFileInput"),
+  gilesAttachmentUploadBtn: document.getElementById("gilesAttachmentUploadBtn"),
+  jesseAttachmentUploadBtn: document.getElementById("jesseAttachmentUploadBtn"),
+  gilesAttachmentLinkInput: document.getElementById("gilesAttachmentLinkInput"),
+  jesseAttachmentLinkInput: document.getElementById("jesseAttachmentLinkInput"),
+  gilesAttachmentAddLinkBtn: document.getElementById("gilesAttachmentAddLinkBtn"),
+  jesseAttachmentAddLinkBtn: document.getElementById("jesseAttachmentAddLinkBtn"),
+  gilesAttachmentDropzone: document.getElementById("gilesAttachmentDropzone"),
+  jesseAttachmentDropzone: document.getElementById("jesseAttachmentDropzone"),
+  gilesAttachmentStatus: document.getElementById("gilesAttachmentStatus"),
+  jesseAttachmentStatus: document.getElementById("jesseAttachmentStatus"),
+  gilesAttachmentsList: document.getElementById("gilesAttachmentsList"),
+  jesseAttachmentsList: document.getElementById("jesseAttachmentsList"),
   reconStatusInput: document.getElementById("reconStatusInput"),
   reconStatusBadge: document.getElementById("reconStatusBadge"),
   reconStatusGuidance: document.getElementById("reconStatusGuidance"),
@@ -265,6 +284,52 @@ function bindEvents() {
   if (els.jesseNoteInput) {
     els.jesseNoteInput.addEventListener("input", handleReconNoteInput);
   }
+  RECON_ATTACHMENT_SIDES.forEach((side) => {
+    const fileInput = getReconAttachmentFileInput(side);
+    const uploadBtn = getReconAttachmentUploadBtn(side);
+    const linkInput = getReconAttachmentLinkInput(side);
+    const addLinkBtn = getReconAttachmentAddLinkBtn(side);
+    const dropzone = getReconAttachmentDropzone(side);
+    const listEl = getReconAttachmentListEl(side);
+
+    if (uploadBtn && fileInput) {
+      uploadBtn.addEventListener("click", () => fileInput.click());
+    }
+    if (fileInput) {
+      fileInput.addEventListener("change", () => {
+        void handleReconAttachmentFileChange(side);
+      });
+    }
+    if (addLinkBtn) {
+      addLinkBtn.addEventListener("click", () => {
+        void handleReconAttachmentAddLink(side);
+      });
+    }
+    if (linkInput) {
+      linkInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void handleReconAttachmentAddLink(side);
+        }
+      });
+    }
+    if (dropzone) {
+      dropzone.addEventListener("click", () => dropzone.focus());
+      dropzone.addEventListener("paste", (event) => {
+        void handleReconAttachmentPaste(event, side);
+      });
+      dropzone.addEventListener("dragover", (event) => handleReconAttachmentDragOver(event, side));
+      dropzone.addEventListener("dragleave", () => handleReconAttachmentDragLeave(side));
+      dropzone.addEventListener("drop", (event) => {
+        void handleReconAttachmentDrop(event, side);
+      });
+    }
+    if (listEl) {
+      listEl.addEventListener("click", (event) => {
+        void handleReconAttachmentListClick(event, side);
+      });
+    }
+  });
   if (els.reconStatusInput) {
     els.reconStatusInput.addEventListener("change", handleReconStatusChange);
   }
@@ -936,6 +1001,76 @@ function getReconNoteScopeLabel() {
   return state.selectedMonthKey ? formatMonthKeyLabel(state.selectedMonthKey) : "All Months";
 }
 
+function getReconAttachmentFileInput(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentFileInput;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentFileInput;
+  }
+  return null;
+}
+
+function getReconAttachmentUploadBtn(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentUploadBtn;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentUploadBtn;
+  }
+  return null;
+}
+
+function getReconAttachmentLinkInput(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentLinkInput;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentLinkInput;
+  }
+  return null;
+}
+
+function getReconAttachmentAddLinkBtn(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentAddLinkBtn;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentAddLinkBtn;
+  }
+  return null;
+}
+
+function getReconAttachmentDropzone(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentDropzone;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentDropzone;
+  }
+  return null;
+}
+
+function getReconAttachmentStatusEl(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentStatus;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentStatus;
+  }
+  return null;
+}
+
+function getReconAttachmentListEl(side) {
+  if (side === "giles") {
+    return els.gilesAttachmentsList;
+  }
+  if (side === "jesse") {
+    return els.jesseAttachmentsList;
+  }
+  return null;
+}
+
 function normalizeReconNotesEntry(entry) {
   if (typeof entry === "string") {
     return {
@@ -1138,6 +1273,368 @@ async function pullReconciliationHistory(scopeKey, { force = false, silent = tru
   }
 }
 
+function normalizeReconAttachmentSide(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return RECON_ATTACHMENT_SIDES.includes(raw) ? raw : null;
+}
+
+function getReconciliationAttachmentsForScope(scopeKey, side = null) {
+  const items = state.reconciliationAttachmentsByScope[scopeKey];
+  if (!Array.isArray(items)) {
+    return null;
+  }
+  if (!side) {
+    return items;
+  }
+  return items.filter((item) => normalizeReconAttachmentSide(item.side) === side);
+}
+
+function renderReconciliationAttachmentItem(item, side) {
+  const attachmentId = Number(item.id || 0);
+  const kind = String(item.kind || "link").toLowerCase();
+  const title = String(item.title || (kind === "image" ? "Screenshot" : "Link"));
+  const assetUrl = String(item.asset_url || "");
+  const timestamp = formatDateTimeAustralian(item.created_at);
+  const preview = kind === "image"
+    ? `
+      <a class="recon-attachment-thumb-link" href="${escapeHtml(assetUrl)}" target="_blank" rel="noreferrer">
+        <img class="recon-attachment-thumb" src="${escapeHtml(assetUrl)}" alt="${escapeHtml(title)}" />
+      </a>
+    `
+    : `<div class="recon-attachment-placeholder">LINK</div>`;
+  const detail = kind === "image"
+    ? `<span class="recon-attachment-submeta">${escapeHtml(timestamp)}</span>`
+    : `
+      <span class="recon-attachment-submeta">${escapeHtml(timestamp)}</span>
+      <a class="recon-attachment-link" href="${escapeHtml(assetUrl)}" target="_blank" rel="noreferrer">${escapeHtml(
+        truncateText(assetUrl, 80)
+      )}</a>
+    `;
+
+  return `
+    <li>
+      <div class="recon-attachment-card">
+        ${preview}
+        <div class="recon-attachment-meta">
+          <div class="recon-attachment-title">${escapeHtml(title)}</div>
+          ${detail}
+          <div class="recon-attachment-actions-row">
+            <a class="secondary" href="${escapeHtml(assetUrl)}" target="_blank" rel="noreferrer">Open</a>
+            <button
+              class="secondary recon-attachment-delete-btn"
+              type="button"
+              data-action="delete-recon-attachment"
+              data-side="${escapeHtml(side)}"
+              data-attachment-id="${attachmentId}"
+            >Remove</button>
+          </div>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderReconciliationAttachments(scopeKey = getReconNoteScopeKey()) {
+  RECON_ATTACHMENT_SIDES.forEach((side) => {
+    const statusEl = getReconAttachmentStatusEl(side);
+    const listEl = getReconAttachmentListEl(side);
+    if (!statusEl || !listEl) {
+      return;
+    }
+
+    const baseUrl = getApiBaseUrl();
+    if (!baseUrl) {
+      statusEl.textContent = "Set API URL to use shared attachments.";
+      listEl.innerHTML = "";
+      return;
+    }
+
+    const items = getReconciliationAttachmentsForScope(scopeKey, side);
+    if (!Array.isArray(items)) {
+      statusEl.textContent = reconAttachmentInFlightBySide[side] ? "Saving attachment..." : "Loading attachments...";
+      listEl.innerHTML = "";
+      return;
+    }
+
+    if (!items.length) {
+      statusEl.textContent = reconAttachmentInFlightBySide[side] ? "Saving attachment..." : "No attachments yet.";
+      listEl.innerHTML = "";
+      return;
+    }
+
+    statusEl.textContent = reconAttachmentInFlightBySide[side]
+      ? `Saving attachment... ${items.length} loaded`
+      : `${items.length} attachment(s)`;
+    listEl.innerHTML = items.map((item) => renderReconciliationAttachmentItem(item, side)).join("");
+  });
+}
+
+async function pullReconciliationAttachments(scopeKey, { force = false, silent = true } = {}) {
+  const normalizedScopeKey = String(scopeKey || "").trim();
+  if (!normalizedScopeKey) {
+    return false;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    renderReconciliationAttachments(normalizedScopeKey);
+    return false;
+  }
+
+  if (!force && Array.isArray(state.reconciliationAttachmentsByScope[normalizedScopeKey])) {
+    renderReconciliationAttachments(normalizedScopeKey);
+    return true;
+  }
+
+  try {
+    const res = await fetch(
+      `${baseUrl}/reconciliation-attachments?scope_key=${encodeURIComponent(normalizedScopeKey)}`
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `Attachment pull failed (${res.status})`);
+    }
+    const rows = await res.json();
+    state.reconciliationAttachmentsByScope[normalizedScopeKey] = Array.isArray(rows) ? rows : [];
+    state.reconciliationAttachmentsFetchedAt[normalizedScopeKey] = Date.now();
+    renderReconciliationAttachments(normalizedScopeKey);
+    return true;
+  } catch (error) {
+    const message = String(error.message || error);
+    if (normalizedScopeKey === getReconNoteScopeKey()) {
+      RECON_ATTACHMENT_SIDES.forEach((side) => {
+        const statusEl = getReconAttachmentStatusEl(side);
+        const listEl = getReconAttachmentListEl(side);
+        if (statusEl) {
+          statusEl.textContent = `Attachment load failed: ${message}`;
+        }
+        if (listEl) {
+          listEl.innerHTML = "";
+        }
+      });
+    }
+    if (!silent) {
+      alert(`Attachment load failed: ${message}`);
+    }
+    return false;
+  }
+}
+
+function inferAttachmentTitleFromFile(file) {
+  const raw = String(file?.name || "").trim();
+  if (!raw) {
+    return "Screenshot";
+  }
+  return raw.replace(/\.[a-z0-9]+$/i, "") || raw;
+}
+
+function buildScreenshotFileName(side) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${side}-screenshot-${stamp}.png`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("File read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function createReconciliationAttachment(payload) {
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    alert("Set API URL first.");
+    return null;
+  }
+
+  const res = await fetch(`${baseUrl}/reconciliation-attachments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `Attachment save failed (${res.status})`);
+  }
+
+  const created = await res.json();
+  const scopeKey = String(created.scope_key || payload.scope_key || payload.scopeKey || "");
+  const existing = Array.isArray(state.reconciliationAttachmentsByScope[scopeKey])
+    ? state.reconciliationAttachmentsByScope[scopeKey]
+    : [];
+  state.reconciliationAttachmentsByScope[scopeKey] = [created, ...existing.filter((item) => Number(item.id) !== Number(created.id))];
+  state.reconciliationAttachmentsFetchedAt[scopeKey] = Date.now();
+  renderReconciliationAttachments(scopeKey);
+  return created;
+}
+
+async function uploadReconAttachmentFile(side, file, source = "upload") {
+  const normalizedSide = normalizeReconAttachmentSide(side);
+  if (!normalizedSide || !file) {
+    return false;
+  }
+  if (!String(file.type || "").startsWith("image/")) {
+    alert("Only image uploads are supported here.");
+    return false;
+  }
+  if (Number(file.size || 0) > MAX_RECON_ATTACHMENT_FILE_SIZE) {
+    alert("Image is too large. Keep uploads under 5 MB for now.");
+    return false;
+  }
+
+  const scopeKey = getReconNoteScopeKey();
+  reconAttachmentInFlightBySide[normalizedSide] = true;
+  renderReconciliationAttachments(scopeKey);
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    await createReconciliationAttachment({
+      scope_key: scopeKey,
+      side: normalizedSide,
+      kind: "image",
+      data_url: dataUrl,
+      file_name: file.name || buildScreenshotFileName(normalizedSide),
+      mime_type: file.type || "image/png",
+      title: inferAttachmentTitleFromFile(file),
+      source: `ui-${source}`
+    });
+    return true;
+  } catch (error) {
+    alert(`Attachment upload failed: ${String(error.message || error)}`);
+    return false;
+  } finally {
+    reconAttachmentInFlightBySide[normalizedSide] = false;
+    renderReconciliationAttachments(scopeKey);
+  }
+}
+
+async function handleReconAttachmentFileChange(side) {
+  const input = getReconAttachmentFileInput(side);
+  const file = input?.files?.[0];
+  if (!file) {
+    return;
+  }
+  if (input) {
+    input.value = "";
+  }
+  await uploadReconAttachmentFile(side, file, "file");
+}
+
+async function handleReconAttachmentAddLink(side) {
+  const normalizedSide = normalizeReconAttachmentSide(side);
+  const input = getReconAttachmentLinkInput(normalizedSide);
+  const url = String(input?.value || "").trim();
+  if (!normalizedSide || !url) {
+    return;
+  }
+
+  reconAttachmentInFlightBySide[normalizedSide] = true;
+  renderReconciliationAttachments(getReconNoteScopeKey());
+  try {
+    await createReconciliationAttachment({
+      scope_key: getReconNoteScopeKey(),
+      side: normalizedSide,
+      kind: "link",
+      url,
+      title: url,
+      source: "ui-link"
+    });
+    if (input) {
+      input.value = "";
+    }
+  } catch (error) {
+    alert(`Link save failed: ${String(error.message || error)}`);
+  } finally {
+    reconAttachmentInFlightBySide[normalizedSide] = false;
+    renderReconciliationAttachments(getReconNoteScopeKey());
+  }
+}
+
+async function handleReconAttachmentPaste(event, side) {
+  const items = Array.from(event.clipboardData?.items || []);
+  const imageItem = items.find((item) => String(item.type || "").startsWith("image/"));
+  if (!imageItem) {
+    return;
+  }
+  event.preventDefault();
+  const file = imageItem.getAsFile();
+  if (!file) {
+    return;
+  }
+  const namedFile = new File([file], buildScreenshotFileName(side), { type: file.type || "image/png" });
+  await uploadReconAttachmentFile(side, namedFile, "paste");
+}
+
+function handleReconAttachmentDragOver(event, side) {
+  event.preventDefault();
+  const dropzone = getReconAttachmentDropzone(side);
+  dropzone?.classList.add("is-dragover");
+}
+
+function handleReconAttachmentDragLeave(side) {
+  const dropzone = getReconAttachmentDropzone(side);
+  dropzone?.classList.remove("is-dragover");
+}
+
+async function handleReconAttachmentDrop(event, side) {
+  event.preventDefault();
+  handleReconAttachmentDragLeave(side);
+  const files = Array.from(event.dataTransfer?.files || []);
+  const imageFile = files.find((file) => String(file.type || "").startsWith("image/"));
+  if (!imageFile) {
+    alert("Drop an image file here.");
+    return;
+  }
+  await uploadReconAttachmentFile(side, imageFile, "drop");
+}
+
+async function handleReconAttachmentListClick(event, side) {
+  const button = event.target.closest("[data-action='delete-recon-attachment']");
+  if (!button) {
+    return;
+  }
+  const normalizedSide = normalizeReconAttachmentSide(side);
+  const attachmentId = Number(button.dataset.attachmentId || 0);
+  if (!normalizedSide || !Number.isInteger(attachmentId) || attachmentId < 1) {
+    return;
+  }
+
+  const confirmed = confirm("Remove this attachment?");
+  if (!confirmed) {
+    return;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    alert("Set API URL first.");
+    return;
+  }
+
+  reconAttachmentInFlightBySide[normalizedSide] = true;
+  renderReconciliationAttachments(getReconNoteScopeKey());
+  try {
+    const res = await fetch(`${baseUrl}/reconciliation-attachments/${attachmentId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `Attachment delete failed (${res.status})`);
+    }
+    const scopeKey = getReconNoteScopeKey();
+    const existing = Array.isArray(state.reconciliationAttachmentsByScope[scopeKey])
+      ? state.reconciliationAttachmentsByScope[scopeKey]
+      : [];
+    state.reconciliationAttachmentsByScope[scopeKey] = existing.filter((item) => Number(item.id) !== attachmentId);
+    state.reconciliationAttachmentsFetchedAt[scopeKey] = Date.now();
+    renderReconciliationAttachments(scopeKey);
+  } catch (error) {
+    alert(`Attachment delete failed: ${String(error.message || error)}`);
+  } finally {
+    reconAttachmentInFlightBySide[normalizedSide] = false;
+    renderReconciliationAttachments(getReconNoteScopeKey());
+  }
+}
+
 function renderReconciliationNotes() {
   if (!els.gilesNoteInput || !els.jesseNoteInput || !els.reconNoteScopeLabel || !els.reconNoteStatus) {
     return;
@@ -1158,8 +1655,10 @@ function renderReconciliationNotes() {
   const noteValue = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
   els.reconNoteStatus.textContent = hasReconNotes(noteValue) ? "Saved for this scope" : "No note yet";
   renderReconStatus(scopeKey);
+  renderReconciliationAttachments(scopeKey);
   renderReconciliationHistory(scopeKey);
   if (scopeChanged) {
+    void pullReconciliationAttachments(scopeKey, { force: false, silent: true });
     void pullReconciliationHistory(scopeKey, { force: false, silent: true });
   }
 }
@@ -2691,6 +3190,7 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
     persistApiUrl();
     persist();
     render();
+    void pullReconciliationAttachments(getReconNoteScopeKey(), { force: true, silent: true });
     void pullReconciliationHistory(getReconNoteScopeKey(), { force: true, silent: true });
     if (scopeWarning) {
       setSyncStatus(`Last pull ${formatClockTime()} (tx ${imported.length}, ${scopeWarning}).`, "warn");

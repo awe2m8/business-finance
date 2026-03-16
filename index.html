@@ -205,6 +205,24 @@
                 rows="4"
                 placeholder="Example: Giles paid personal card item on 16/02/2026."
               ></textarea>
+              <div class="recon-attachments-panel">
+                <div class="recon-attachments-actions">
+                  <input id="gilesAttachmentFileInput" type="file" accept="image/*" hidden />
+                  <button id="gilesAttachmentUploadBtn" class="secondary" type="button">Upload Image</button>
+                </div>
+                <label class="recon-attachment-link-field">
+                  Add Link
+                  <div class="recon-attachment-link-row">
+                    <input id="gilesAttachmentLinkInput" type="url" placeholder="https://drive.google.com/..." />
+                    <button id="gilesAttachmentAddLinkBtn" class="secondary" type="button">Add</button>
+                  </div>
+                </label>
+                <div id="gilesAttachmentDropzone" class="recon-attachment-dropzone" tabindex="0">
+                  Paste screenshot here or drag an image in.
+                </div>
+                <small id="gilesAttachmentStatus" class="recon-attachment-status">No attachments yet.</small>
+                <ul id="gilesAttachmentsList" class="list compact-list recon-attachments-list"></ul>
+              </div>
             </label>
             <label class="recon-note-field">
               Jesse Notes
@@ -214,6 +232,24 @@
                 rows="4"
                 placeholder="Example: Jesse follow-up needed before month close."
               ></textarea>
+              <div class="recon-attachments-panel">
+                <div class="recon-attachments-actions">
+                  <input id="jesseAttachmentFileInput" type="file" accept="image/*" hidden />
+                  <button id="jesseAttachmentUploadBtn" class="secondary" type="button">Upload Image</button>
+                </div>
+                <label class="recon-attachment-link-field">
+                  Add Link
+                  <div class="recon-attachment-link-row">
+                    <input id="jesseAttachmentLinkInput" type="url" placeholder="https://drive.google.com/..." />
+                    <button id="jesseAttachmentAddLinkBtn" class="secondary" type="button">Add</button>
+                  </div>
+                </label>
+                <div id="jesseAttachmentDropzone" class="recon-attachment-dropzone" tabindex="0">
+                  Paste screenshot here or drag an image in.
+                </div>
+                <small id="jesseAttachmentStatus" class="recon-attachment-status">No attachments yet.</small>
+                <ul id="jesseAttachmentsList" class="list compact-list recon-attachments-list"></ul>
+              </div>
             </label>
           </div>
           <div class="recon-status-row">

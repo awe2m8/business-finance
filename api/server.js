@@ -7,9 +7,10 @@ const app = express();
 const PORT = Number(process.env.PORT || 3001);
 const DATABASE_URL = process.env.DATABASE_URL;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const MAX_ATTACHMENT_DATA_URL_LENGTH = 7_000_000;
 
 app.use(cors({ origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",") }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "8mb" }));
 
 const pool = DATABASE_URL
   ? new pg.Pool({
@@ -89,6 +90,104 @@ app.get("/reconciliation-scopes/:scopeKey/history", async (req, res) => {
       [scopeKey, limit]
     );
     return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.get("/reconciliation-attachments", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const scopeKey = normalizeScopeKey(req.query.scope_key || req.query.scopeKey);
+  if (!scopeKey) {
+    return res.status(400).json({ error: "scope_key is required" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `select id, scope_key, side, kind, title, asset_url, mime_type, file_name, created_at
+       from reconciliation_attachments
+       where scope_key = $1
+       order by created_at desc, id desc`,
+      [scopeKey]
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/reconciliation-attachments", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const scopeKey = normalizeScopeKey(req.body?.scope_key || req.body?.scopeKey);
+  const side = normalizeAttachmentSide(req.body?.side);
+  const kind = normalizeAttachmentKind(req.body?.kind);
+
+  if (!scopeKey) {
+    return res.status(400).json({ error: "Valid scope_key is required" });
+  }
+  if (!side) {
+    return res.status(400).json({ error: "side must be giles or jesse" });
+  }
+  if (!kind) {
+    return res.status(400).json({ error: "kind must be image or link" });
+  }
+
+  let assetUrl = null;
+  let mimeType = null;
+  let fileName = null;
+  let title = normalizeAttachmentTitle(req.body?.title);
+
+  if (kind === "link") {
+    assetUrl = normalizeExternalUrl(req.body?.url || req.body?.asset_url || req.body?.assetUrl);
+    if (!assetUrl) {
+      return res.status(400).json({ error: "Valid link URL is required" });
+    }
+    title = title || deriveAttachmentTitleFromUrl(assetUrl);
+  } else {
+    assetUrl = normalizeImageDataUrl(req.body?.data_url || req.body?.dataUrl || req.body?.asset_url || req.body?.assetUrl);
+    if (!assetUrl) {
+      return res.status(400).json({ error: "Valid image data URL is required" });
+    }
+    mimeType = normalizeAttachmentMimeType(req.body?.mime_type || req.body?.mimeType) || extractMimeTypeFromDataUrl(assetUrl);
+    fileName = normalizeAttachmentFileName(req.body?.file_name || req.body?.fileName);
+    title = title || fileName || "Screenshot";
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `insert into reconciliation_attachments (scope_key, side, kind, title, asset_url, mime_type, file_name)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       returning id, scope_key, side, kind, title, asset_url, mime_type, file_name, created_at`,
+      [scopeKey, side, kind, title, assetUrl, mimeType, fileName]
+    );
+    return res.status(201).json(rows[0]);
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.delete("/reconciliation-attachments/:id", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  const attachmentId = Number(req.params.id);
+  if (!Number.isInteger(attachmentId) || attachmentId < 1) {
+    return res.status(400).json({ error: "Valid attachment id is required" });
+  }
+
+  try {
+    const result = await pool.query(`delete from reconciliation_attachments where id = $1`, [attachmentId]);
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    return res.json({ deleted: attachmentId });
   } catch (error) {
     return res.status(500).json({ error: String(error.message || error) });
   }
@@ -481,6 +580,86 @@ function normalizeSource(value) {
   return raw ? raw.slice(0, 80) : "ui-sync";
 }
 
+function normalizeAttachmentSide(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "giles" || raw === "jesse") {
+    return raw;
+  }
+  return null;
+}
+
+function normalizeAttachmentKind(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "image" || raw === "link") {
+    return raw;
+  }
+  return null;
+}
+
+function normalizeAttachmentTitle(value) {
+  const raw = String(value || "").trim();
+  return raw ? raw.slice(0, 255) : null;
+}
+
+function normalizeAttachmentFileName(value) {
+  const raw = String(value || "").trim();
+  return raw ? raw.slice(0, 255) : null;
+}
+
+function normalizeAttachmentMimeType(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) {
+    return null;
+  }
+  if (!raw.startsWith("image/")) {
+    return null;
+  }
+  return raw.slice(0, 100);
+}
+
+function normalizeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString().slice(0, 4000);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function normalizeImageDataUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > MAX_ATTACHMENT_DATA_URL_LENGTH) {
+    return null;
+  }
+  if (!/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(raw)) {
+    return null;
+  }
+  return raw.replace(/\s+/g, "");
+}
+
+function extractMimeTypeFromDataUrl(value) {
+  const match = String(value || "").match(/^data:(image\/[a-z0-9.+-]+);base64,/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function deriveAttachmentTitleFromUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    const lastSegment = pathname.split("/").filter(Boolean).pop();
+    return normalizeAttachmentTitle(lastSegment || parsed.hostname || "Link");
+  } catch (_error) {
+    return "Link";
+  }
+}
+
 function normalizeKnownUpdatedAt(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -558,6 +737,23 @@ async function ensureSchema() {
     )`
   );
   await pool.query(`create index if not exists idx_reconciliation_scope_versions_scope_id on reconciliation_scope_versions (scope_key, id desc)`);
+  await pool.query(
+    `create table if not exists reconciliation_attachments (
+      id bigserial primary key,
+      scope_key text not null,
+      side text not null,
+      kind text not null,
+      title text,
+      asset_url text not null,
+      mime_type text,
+      file_name text,
+      created_at timestamptz not null default now(),
+      constraint reconciliation_attachments_side_check check (side in ('giles', 'jesse')),
+      constraint reconciliation_attachments_kind_check check (kind in ('image', 'link'))
+    )`
+  );
+  await pool.query(`create index if not exists idx_reconciliation_attachments_scope_created on reconciliation_attachments (scope_key, created_at desc, id desc)`);
+  await pool.query(`create index if not exists idx_reconciliation_attachments_scope_side on reconciliation_attachments (scope_key, side)`);
 }
 
 async function start() {

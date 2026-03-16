@@ -11,6 +11,9 @@ Minimal Express API for Render + Supabase.
 - `POST /reconciliation-scopes/bulk`
 - `GET /reconciliation-scopes/:scopeKey/history`
 - `POST /reconciliation-scopes/:scopeKey/restore`
+- `GET /reconciliation-attachments?scope_key=YYYY-MM`
+- `POST /reconciliation-attachments`
+- `DELETE /reconciliation-attachments/:id`
 
 ## Local run
 ```bash
