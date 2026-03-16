@@ -182,6 +182,19 @@ app.post("/transactions/bulk", async (req, res) => {
   }
 });
 
+app.post("/transactions/clear", async (req, res) => {
+  if (!pool) {
+    return res.status(500).json({ error: "DATABASE_URL is required" });
+  }
+
+  try {
+    const result = await pool.query(`delete from transactions`);
+    return res.json({ deleted: Number(result.rowCount || 0) });
+  } catch (error) {
+    return res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
 app.post("/reconciliation-scopes/bulk", async (req, res) => {
   if (!pool) {
     return res.status(500).json({ error: "DATABASE_URL is required" });

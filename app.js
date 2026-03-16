@@ -447,16 +447,7 @@ function importFromSelectedFile({ importMonthKey = null, idScopeKey = null, sele
 }
 
 function handleClear() {
-  if (!confirm("Delete all imported data from this browser?")) {
-    return;
-  }
-  state.transactions = [];
-  state.recurring = [];
-  state.selectedMonthKey = null;
-  persistSelectedMonth();
-  persist();
-  render();
-  setSyncStatus("Local browser data cleared. API data remains unchanged.", "warn");
+  void clearAllTransactions({ source: "clear-button" });
 }
 
 function parseCSV(text) {
@@ -1900,12 +1891,26 @@ function renderMonthPanel() {
 
   const allBtn = document.createElement("button");
   allBtn.className = `month-badge ${state.selectedMonthKey ? "" : "active"}`.trim();
-  allBtn.innerHTML = `<span class="month-name">All Months</span><span class="month-meta">${allSummary.count} tx</span>`;
+  allBtn.innerHTML = `
+    <span class="month-badge-top">
+      <span class="month-name">All Months</span>
+      <span class="month-delete-btn" data-all-months-delete="true" role="button" aria-label="Clear all transactions">×</span>
+    </span>
+    <span class="month-meta">${allSummary.count} tx</span>
+  `;
   allBtn.addEventListener("click", () => {
     state.selectedMonthKey = null;
     persistSelectedMonth();
     render();
   });
+  const allDeleteBtn = allBtn.querySelector("[data-all-months-delete]");
+  if (allDeleteBtn) {
+    allDeleteBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void clearAllTransactions({ source: "all-months-badge" });
+    });
+  }
   els.monthBadgeRow.appendChild(allBtn);
 
   summaries.forEach((summary) => {
@@ -1979,6 +1984,52 @@ function deleteMonthBatch(summary) {
     void syncToApi({ silent: true, source: "month-remove" });
   } else {
     setSyncStatus("Month removed locally. Add API URL and sync to persist across refresh.", "warn");
+  }
+}
+
+function resetTransactionsState() {
+  state.transactions = [];
+  state.recurring = [];
+  state.selectedMonthKey = null;
+  persistSelectedMonth();
+  persist();
+  render();
+}
+
+async function clearAllTransactions({ source = "clear-all" } = {}) {
+  const count = state.transactions.length;
+  const ok = confirm(`Delete all ${count} transaction(s) from All Months? This clears the full transaction set.`);
+  if (!ok) {
+    return false;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    resetTransactionsState();
+    setSyncStatus("All transactions cleared locally. Add API URL to clear shared data too.", "warn");
+    return true;
+  }
+
+  try {
+    setSyncStatus("Clearing all transactions from API...", "warn");
+    const res = await fetch(`${baseUrl}/transactions/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `Transaction clear failed (${res.status})`);
+    }
+    const json = await res.json();
+    resetTransactionsState();
+    setSyncStatus(`All transactions cleared ${formatClockTime()} (${Number(json.deleted || 0)} deleted).`, "ok");
+    return true;
+  } catch (error) {
+    const message = String(error.message || error);
+    setSyncStatus(`Transaction clear failed: ${message}`, "error");
+    alert(`Transaction clear failed: ${message}`);
+    return false;
   }
 }
 
