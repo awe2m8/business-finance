@@ -746,6 +746,12 @@ button.panel-toggle-btn:hover {
   gap: 8px;
 }
 
+.recon-history-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 #reconHistoryStatus {
   display: block;
   margin-top: 4px;

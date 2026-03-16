@@ -273,11 +273,24 @@
           </div>
           <div class="recon-history">
             <div class="recon-history-head">
-              <strong>Version History</strong>
+              <div class="recon-history-title-row">
+                <strong>Version History</strong>
+                <button
+                  id="reconHistoryToggleBtn"
+                  class="panel-toggle-btn collapsed"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="reconHistoryContent"
+                >
+                  <span id="reconHistoryToggleIcon" class="panel-toggle-icon">▸</span>
+                </button>
+              </div>
               <button id="refreshReconHistoryBtn" class="secondary" type="button">Refresh</button>
             </div>
-            <small id="reconHistoryStatus" class="hint">History loads for selected scope.</small>
-            <ul id="reconHistoryList" class="list compact-list"></ul>
+            <div id="reconHistoryContent" class="collapsible-content is-collapsed">
+              <small id="reconHistoryStatus" class="hint">History loads for selected scope.</small>
+              <ul id="reconHistoryList" class="list compact-list"></ul>
+            </div>
           </div>
         </div>
       </section>

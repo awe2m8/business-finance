@@ -2,6 +2,7 @@ const STORAGE_KEY = "finance_os_transactions_v1";
 const API_URL_KEY = "finance_os_api_url_v1";
 const SELECTED_MONTH_KEY = "finance_os_selected_month_v1";
 const CONTROLS_OPEN_KEY = "finance_os_controls_open_v1";
+const RECON_HISTORY_OPEN_KEY = "finance_os_recon_history_open_v1";
 const RECON_NOTES_KEY = "finance_os_reconciliation_notes_v1";
 const RECON_STATUS_KEY = "finance_os_reconciliation_status_v1";
 const INITIAL_RECON_KEY = "finance_os_initial_reconciliation_v1";
@@ -211,6 +212,9 @@ const els = {
   saveReconNoteBtn: document.getElementById("saveReconNoteBtn"),
   reconNoteStatus: document.getElementById("reconNoteStatus"),
   refreshReconHistoryBtn: document.getElementById("refreshReconHistoryBtn"),
+  reconHistoryToggleBtn: document.getElementById("reconHistoryToggleBtn"),
+  reconHistoryContent: document.getElementById("reconHistoryContent"),
+  reconHistoryToggleIcon: document.getElementById("reconHistoryToggleIcon"),
   reconHistoryStatus: document.getElementById("reconHistoryStatus"),
   reconHistoryList: document.getElementById("reconHistoryList"),
   initialReconFileInput: document.getElementById("initialReconFileInput"),
@@ -237,6 +241,7 @@ function init() {
   const initialApiUrl = savedApiUrl || defaultApiUrl;
   initControlsPanel();
   initSectionPanels();
+  initReconHistoryPanel();
   els.importMonthInput.value = getCurrentMonthKey();
   els.apiUrlInput.value = initialApiUrl;
   persistApiUrl();
@@ -341,6 +346,9 @@ function bindEvents() {
   if (els.refreshReconHistoryBtn) {
     els.refreshReconHistoryBtn.addEventListener("click", handleRefreshReconHistoryClick);
   }
+  if (els.reconHistoryToggleBtn) {
+    els.reconHistoryToggleBtn.addEventListener("click", toggleReconHistoryPanel);
+  }
   if (els.reconHistoryList) {
     els.reconHistoryList.addEventListener("click", handleReconHistoryListClick);
   }
@@ -364,6 +372,12 @@ function initControlsPanel() {
   const raw = localStorage.getItem(CONTROLS_OPEN_KEY);
   const isOpen = raw === null ? true : raw === "1";
   setControlsPanelOpen(isOpen);
+}
+
+function initReconHistoryPanel() {
+  const raw = localStorage.getItem(RECON_HISTORY_OPEN_KEY);
+  const isOpen = raw === "1";
+  setReconHistoryOpen(isOpen);
 }
 
 function initSectionPanels() {
@@ -441,6 +455,24 @@ function setSectionPanelOpen(panel, isOpen) {
   if (panel.label) {
     panel.toggleBtn.setAttribute("title", `${isOpen ? "Collapse" : "Expand"} ${panel.label}`);
   }
+}
+
+function toggleReconHistoryPanel() {
+  const isOpen = !els.reconHistoryContent?.classList.contains("is-collapsed");
+  setReconHistoryOpen(!isOpen);
+}
+
+function setReconHistoryOpen(isOpen) {
+  if (!els.reconHistoryContent || !els.reconHistoryToggleBtn || !els.reconHistoryToggleIcon) {
+    return;
+  }
+
+  els.reconHistoryContent.classList.toggle("is-collapsed", !isOpen);
+  els.reconHistoryToggleBtn.classList.toggle("collapsed", !isOpen);
+  els.reconHistoryToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  els.reconHistoryToggleBtn.setAttribute("title", isOpen ? "Collapse version history" : "Expand version history");
+  els.reconHistoryToggleIcon.textContent = isOpen ? "▾" : "▸";
+  localStorage.setItem(RECON_HISTORY_OPEN_KEY, isOpen ? "1" : "0");
 }
 
 function toggleControlsPanel() {
