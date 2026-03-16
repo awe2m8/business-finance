@@ -12,6 +12,7 @@ const AUTO_SYNC_DEBOUNCE_MS = 1600;
 const AUTO_PULL_INTERVAL_MS = 30000;
 const AUTO_PULL_MIN_GAP_MS = 8000;
 const DEFAULT_API_URL = "https://business-finance-lhyh.onrender.com";
+const SHORT_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const CATEGORY_OPTIONS = [
   "Uncategorized",
@@ -2076,8 +2077,9 @@ function buildMonthSummaries(transactions) {
 
 function formatMonthKeyLabel(monthKey) {
   const [year, month] = monthKey.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, 1));
-  return date.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const monthName = SHORT_MONTH_NAMES[month - 1] || String(month).padStart(2, "0");
+  const shortYear = String(year).slice(-2);
+  return `${monthName} ${shortYear}`;
 }
 
 function renderTransactions() {
