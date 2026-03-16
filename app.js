@@ -5,6 +5,7 @@ const CONTROLS_OPEN_KEY = "finance_os_controls_open_v1";
 const RECON_HISTORY_OPEN_KEY = "finance_os_recon_history_open_v1";
 const RECON_NOTES_KEY = "finance_os_reconciliation_notes_v1";
 const RECON_STATUS_KEY = "finance_os_reconciliation_status_v1";
+const RECON_DIRTY_SCOPES_KEY = "finance_os_reconciliation_dirty_scopes_v1";
 const INITIAL_RECON_KEY = "finance_os_initial_reconciliation_v1";
 const INITIAL_RECON_META_KEY = "finance_os_initial_reconciliation_meta_v1";
 const INITIAL_RECON_RANGE_START = "2025-06-01";
@@ -115,6 +116,7 @@ const state = {
   selectedMonthKey: null,
   reconciliationNotes: {},
   reconciliationStatuses: {},
+  reconciliationDirtyScopes: {},
   reconciliationHistoryByScope: {},
   reconciliationHistoryFetchedAt: {},
   reconciliationAttachmentsByScope: {},
@@ -234,6 +236,7 @@ function init() {
   state.selectedMonthKey = localStorage.getItem(SELECTED_MONTH_KEY) || null;
   state.reconciliationNotes = loadStoredObject(RECON_NOTES_KEY, {});
   state.reconciliationStatuses = loadStoredObject(RECON_STATUS_KEY, {});
+  state.reconciliationDirtyScopes = loadStoredObject(RECON_DIRTY_SCOPES_KEY, {});
   state.initialReconciliation = loadStoredArray(INITIAL_RECON_KEY);
   state.initialReconciliationMeta = loadStoredObject(INITIAL_RECON_META_KEY, null);
   const savedApiUrl = sanitizeApiUrl(localStorage.getItem(API_URL_KEY) || "");
@@ -648,7 +651,9 @@ function normalizeTransaction(row, importMonthKey = null, sortOrdinal = null, ro
     partnerSplitPct: clamp(splitPct, 0, 100),
     statementMonthKey: normalizedMonthKey,
     sortOrdinal: Number.isFinite(Number(sortOrdinal)) ? Number(sortOrdinal) : null,
-    status: confidence >= 0.8 ? "clean" : "needs-review"
+    status: confidence >= 0.8 ? "clean" : "needs-review",
+    localDirty: true,
+    localRevision: 1
   };
 }
 
@@ -820,6 +825,9 @@ function normalizeStoredTransactions(items) {
     } else {
       normalized.sortOrdinal = nextSortOrdinal++;
     }
+    normalized.localDirty = Boolean(normalized.localDirty);
+    const existingRevision = Number(normalized.localRevision);
+    normalized.localRevision = Number.isFinite(existingRevision) && existingRevision > 0 ? existingRevision : 0;
     return normalized;
   });
 }
@@ -833,7 +841,12 @@ function getNextSortOrdinal() {
   );
 }
 
-function upsertTransactions(items) {
+function markTransactionDirty(tx) {
+  tx.localDirty = true;
+  tx.localRevision = Number(tx.localRevision || 0) + 1;
+}
+
+function upsertTransactions(items, { preserveDirtyLocal = false } = {}) {
   const map = new Map(state.transactions.map((t) => [t.id, t]));
   let nextSortOrdinal =
     Array.from(map.values()).reduce((max, tx) => {
@@ -843,17 +856,102 @@ function upsertTransactions(items) {
 
   items.forEach((item) => {
     const existing = map.get(item.id);
-    const merged = {
+    let merged = {
       ...(existing || {}),
       ...item
     };
+    if (preserveDirtyLocal && existing?.localDirty) {
+      merged = {
+        ...item,
+        ...existing,
+        date: item.date,
+        description: item.description,
+        amount: item.amount,
+        serverUpdatedAt: item.serverUpdatedAt || existing.serverUpdatedAt || null
+      };
+    }
     if (existing && Number.isFinite(Number(existing.sortOrdinal)) && Number(existing.sortOrdinal) > 0) {
       merged.sortOrdinal = Number(existing.sortOrdinal);
     } else if (!Number.isFinite(Number(merged.sortOrdinal)) || Number(merged.sortOrdinal) <= 0) {
       merged.sortOrdinal = nextSortOrdinal++;
     }
+    merged.localDirty = Boolean(merged.localDirty);
+    const mergedRevision = Number(merged.localRevision);
+    merged.localRevision = Number.isFinite(mergedRevision) && mergedRevision > 0 ? mergedRevision : 0;
     map.set(item.id, merged);
   });
+  state.transactions = Array.from(map.values()).sort(compareTransactionOrder);
+}
+
+function mapApiTransactionRow(row, existingIdByLegacyKey = new Map()) {
+  const category = normalizeCategory(row.category || "Uncategorized");
+  const statementMonthKey = normalizeMonthKey(row.statement_month_key);
+  const fallbackId = buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100);
+  const legacyKey = buildLegacyMatchKey(
+    row.tx_date,
+    row.description,
+    Number(row.amount_cents) / 100,
+    statementMonthKey
+  );
+  const existingId = existingIdByLegacyKey.get(legacyKey);
+  return {
+    id: String(row.client_tx_id || existingId || row.id || fallbackId),
+    date: formatDate(row.tx_date),
+    description: String(row.description || ""),
+    amount: Number(row.amount_cents) / 100,
+    category,
+    partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
+    statementMonthKey,
+    serverUpdatedAt: normalizeServerUpdatedAt(row.updated_at),
+    status: category === "Uncategorized" ? "needs-review" : "clean",
+    localDirty: false,
+    localRevision: 0,
+    syncState: String(row.sync_state || "")
+  };
+}
+
+function mergeTransactionSyncResults(rows, revisionSnapshot = new Map()) {
+  const existingIdByLegacyKey = new Map();
+  state.transactions.forEach((tx) => {
+    const key = buildLegacyMatchKey(tx.date, tx.description, tx.amount, tx.statementMonthKey);
+    if (!existingIdByLegacyKey.has(key)) {
+      existingIdByLegacyKey.set(key, tx.id);
+    }
+  });
+
+  const map = new Map(state.transactions.map((tx) => [tx.id, tx]));
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const remoteTx = mapApiTransactionRow(row, existingIdByLegacyKey);
+    const current = map.get(remoteTx.id);
+    const sentRevision = Number(revisionSnapshot.get(remoteTx.id) || 0);
+    const currentRevision = Number(current?.localRevision || 0);
+    const syncState = String(row.sync_state || "");
+
+    if (syncState === "stale" && current) {
+      map.set(remoteTx.id, {
+        ...current,
+        serverUpdatedAt: remoteTx.serverUpdatedAt || current.serverUpdatedAt || null,
+        localDirty: true
+      });
+      return;
+    }
+
+    if (current && current.localDirty && currentRevision !== sentRevision) {
+      map.set(remoteTx.id, {
+        ...current,
+        serverUpdatedAt: remoteTx.serverUpdatedAt || current.serverUpdatedAt || null
+      });
+      return;
+    }
+
+    map.set(remoteTx.id, {
+      ...(current || {}),
+      ...remoteTx,
+      localDirty: false,
+      localRevision: currentRevision
+    });
+  });
+
   state.transactions = Array.from(map.values()).sort(compareTransactionOrder);
 }
 
@@ -994,6 +1092,10 @@ function persistReconciliationStatuses() {
   localStorage.setItem(RECON_STATUS_KEY, JSON.stringify(state.reconciliationStatuses || {}));
 }
 
+function persistReconciliationDirtyScopes() {
+  localStorage.setItem(RECON_DIRTY_SCOPES_KEY, JSON.stringify(state.reconciliationDirtyScopes || {}));
+}
+
 function persistInitialReconciliation() {
   localStorage.setItem(INITIAL_RECON_KEY, JSON.stringify(state.initialReconciliation || []));
   localStorage.setItem(INITIAL_RECON_META_KEY, JSON.stringify(state.initialReconciliationMeta || null));
@@ -1131,10 +1233,38 @@ function hasReconNotes(entry) {
   return Boolean(String(entry.giles || "").trim() || String(entry.jesse || "").trim());
 }
 
-function setReconNotesForScope(scopeKey, notesEntry) {
+function getReconScopeDirtyRevision(scopeKey) {
+  return Number(state.reconciliationDirtyScopes?.[scopeKey]?.revision || 0);
+}
+
+function markReconScopeDirty(scopeKey) {
+  const revision = getReconScopeDirtyRevision(scopeKey) + 1;
+  state.reconciliationDirtyScopes[scopeKey] = {
+    revision,
+    updatedAt: new Date().toISOString()
+  };
+  persistReconciliationDirtyScopes();
+  return revision;
+}
+
+function clearReconScopeDirty(scopeKey, expectedRevision = null) {
+  if (expectedRevision !== null && getReconScopeDirtyRevision(scopeKey) !== Number(expectedRevision)) {
+    return false;
+  }
+  if (state.reconciliationDirtyScopes?.[scopeKey]) {
+    delete state.reconciliationDirtyScopes[scopeKey];
+    persistReconciliationDirtyScopes();
+  }
+  return true;
+}
+
+function setReconNotesForScope(scopeKey, notesEntry, { markDirty = true } = {}) {
   const normalized = normalizeReconNotesEntry(notesEntry);
   state.reconciliationNotes[scopeKey] = normalized;
   persistReconciliationNotes();
+  if (markDirty) {
+    markReconScopeDirty(scopeKey);
+  }
 }
 
 function normalizeReconStatus(value) {
@@ -1156,13 +1286,16 @@ function getReconStatusForScope(scopeKey) {
   return "pending";
 }
 
-function setReconStatusForScope(scopeKey, nextStatus) {
+function setReconStatusForScope(scopeKey, nextStatus, { markDirty = true } = {}) {
   const value = normalizeReconStatus(nextStatus);
   state.reconciliationStatuses[scopeKey] = {
     value,
     updatedAt: new Date().toISOString()
   };
   persistReconciliationStatuses();
+  if (markDirty) {
+    markReconScopeDirty(scopeKey);
+  }
 }
 
 function renderReconStatus(scopeKey) {
@@ -1788,6 +1921,7 @@ async function restoreReconciliationHistoryVersion(scopeKey, versionId) {
         updatedAt: restored.updated_at || new Date().toISOString()
       };
     }
+    clearReconScopeDirty(normalizedScopeKey);
     state.activeNoteScopeKey = null;
     persistReconciliationNotes();
     persistReconciliationStatuses();
@@ -2507,7 +2641,9 @@ function deleteMonthBatch(summary) {
     if (normalizeMonthKey(tx.statementMonthKey) !== monthKey) {
       return tx;
     }
-    return { ...tx, statementMonthKey: null };
+    const nextTx = { ...tx, statementMonthKey: null };
+    markTransactionDirty(nextTx);
+    return nextTx;
   });
   if (state.selectedMonthKey === monthKey) {
     state.selectedMonthKey = null;
@@ -2777,6 +2913,7 @@ function onCellChange(event) {
   }
 
   tx.status = tx.category === "Uncategorized" ? "needs-review" : "clean";
+  markTransactionDirty(tx);
 
   refreshDerivedData();
   persist();
@@ -2873,8 +3010,17 @@ function getReconciliationScopeKeys() {
   );
 }
 
-function buildReconciliationScopeItems() {
-  return getReconciliationScopeKeys()
+function getDirtyTransactions() {
+  return state.transactions.filter((tx) => tx.localDirty);
+}
+
+function hasPendingLocalChanges() {
+  return Boolean(getDirtyTransactions().length || Object.keys(state.reconciliationDirtyScopes || {}).length);
+}
+
+function buildReconciliationScopeItems({ dirtyOnly = false } = {}) {
+  const scopeKeys = dirtyOnly ? Object.keys(state.reconciliationDirtyScopes || {}) : getReconciliationScopeKeys();
+  return scopeKeys
     .map((scopeKey) => {
       const normalizedScopeKey = String(scopeKey || "").trim();
       if (!normalizedScopeKey) {
@@ -2899,6 +3045,14 @@ function applyRemoteReconciliationScopes(rows) {
     if (!scopeKey) {
       return;
     }
+    if (getReconScopeDirtyRevision(scopeKey) > 0) {
+      nextNotes[scopeKey] = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
+      nextStatuses[scopeKey] = state.reconciliationStatuses?.[scopeKey] || {
+        value: "pending",
+        updatedAt: new Date().toISOString()
+      };
+      return;
+    }
     nextNotes[scopeKey] = normalizeReconNotesEntry({
       giles: row.note_giles,
       jesse: row.note_jesse
@@ -2906,6 +3060,17 @@ function applyRemoteReconciliationScopes(rows) {
     nextStatuses[scopeKey] = {
       value: normalizeReconStatus(row.status),
       updatedAt: row.updated_at || new Date().toISOString()
+    };
+  });
+
+  Object.keys(state.reconciliationDirtyScopes || {}).forEach((scopeKey) => {
+    if (nextNotes[scopeKey] || nextStatuses[scopeKey]) {
+      return;
+    }
+    nextNotes[scopeKey] = normalizeReconNotesEntry(state.reconciliationNotes[scopeKey]);
+    nextStatuses[scopeKey] = state.reconciliationStatuses?.[scopeKey] || {
+      value: "pending",
+      updatedAt: new Date().toISOString()
     };
   });
 
@@ -2924,7 +3089,7 @@ function scheduleAutoSync(reason = "update") {
     setSyncStatus("Auto-sync paused: add API URL.", "warn");
     return;
   }
-  if (!state.transactions.length && !buildReconciliationScopeItems().length) {
+  if (!hasPendingLocalChanges()) {
     setSyncStatus("Auto-sync paused: nothing to sync yet.", "warn");
     return;
   }
@@ -3047,10 +3212,14 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
     syncInFlight = true;
     setSyncStatus(silent ? "Auto-syncing to API..." : "Syncing to API...", "warn");
 
-    const validTransactions = state.transactions
+    const validTransactions = getDirtyTransactions()
       .map((t) => ({ ...t, txDate: parseDateToISO(t.date) }))
       .filter((t) => Boolean(t.txDate));
-    const scopeItems = buildReconciliationScopeItems();
+    const txRevisionSnapshot = new Map(validTransactions.map((t) => [String(t.id), Number(t.localRevision || 0)]));
+    const scopeItems = buildReconciliationScopeItems({ dirtyOnly: true });
+    const scopeRevisionSnapshot = new Map(
+      scopeItems.map((item) => [String(item.scope_key || "").trim(), getReconScopeDirtyRevision(item.scope_key)])
+    );
 
     if (!validTransactions.length && !scopeItems.length) {
       setSyncStatus("Sync skipped: nothing to sync.", "warn");
@@ -3090,6 +3259,9 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
       txInserted = Number(json.inserted || 0);
       txUpdated = Number(json.updated || 0);
       txStaleSkipped = Number(json.stale_skipped || 0);
+      if (Array.isArray(json.rows)) {
+        mergeTransactionSyncResults(json.rows, txRevisionSnapshot);
+      }
     }
 
     let scopesUpserted = 0;
@@ -3107,9 +3279,14 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
       const scopeJson = await scopeRes.json();
       scopesUpserted = Number(scopeJson.upserted || 0);
       scopesDeleted = Number(scopeJson.deleted || 0);
+      scopeItems.forEach((item) => {
+        clearReconScopeDirty(item.scope_key, scopeRevisionSnapshot.get(String(item.scope_key || "").trim()));
+      });
     }
 
     persistApiUrl();
+    persist();
+    persistReconciliationDirtyScopes();
     setSyncStatus(
       `Last sync ${formatClockTime()} (new ${txInserted}, updated ${txUpdated}, skipped ${txStaleSkipped}, scopes ${scopesUpserted}, cleared ${scopesDeleted}).`,
       "ok"
@@ -3120,6 +3297,9 @@ async function syncToApi({ silent = false, source = "manual" } = {}) {
       );
     }
     void pullReconciliationHistory(getReconNoteScopeKey(), { force: true, silent: true });
+    if (hasPendingLocalChanges()) {
+      scheduleAutoSync("retry");
+    }
     return true;
   } catch (error) {
     const message = String(error.message || error);
@@ -3182,31 +3362,9 @@ async function pullFromApi({ silent = false, source = "manual" } = {}) {
       }
     });
 
-    const imported = rows.map((row) => {
-      const category = normalizeCategory(row.category || "Uncategorized");
-      const statementMonthKey = normalizeMonthKey(row.statement_month_key);
-      const fallbackId = buildTransactionId(row.tx_date, row.description, Number(row.amount_cents) / 100);
-      const legacyKey = buildLegacyMatchKey(
-        row.tx_date,
-        row.description,
-        Number(row.amount_cents) / 100,
-        statementMonthKey
-      );
-      const existingId = existingIdByLegacyKey.get(legacyKey);
-      return {
-        id: String(row.client_tx_id || existingId || row.id || fallbackId),
-        date: formatDate(row.tx_date),
-        description: String(row.description || ""),
-        amount: Number(row.amount_cents) / 100,
-        category,
-        partnerSplitPct: clamp(Number(row.partner_split_pct || 50), 0, 100),
-        statementMonthKey,
-        serverUpdatedAt: normalizeServerUpdatedAt(row.updated_at),
-        status: category === "Uncategorized" ? "needs-review" : "clean"
-      };
-    });
+    const imported = rows.map((row) => mapApiTransactionRow(row, existingIdByLegacyKey));
 
-    upsertTransactions(imported);
+    upsertTransactions(imported, { preserveDirtyLocal: true });
     refreshDerivedData();
 
     let pulledScopes = 0;

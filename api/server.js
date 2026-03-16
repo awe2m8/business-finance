@@ -207,6 +207,7 @@ app.post("/transactions/bulk", async (req, res) => {
   let inserted = 0;
   let updated = 0;
   let staleSkipped = 0;
+  const rows = [];
 
   try {
     await client.query("begin");
@@ -227,7 +228,7 @@ app.post("/transactions/bulk", async (req, res) => {
       }
 
       const existingRes = await client.query(
-        `select id, updated_at
+        `select id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at, updated_at
          from transactions
          where tx_date = $1 and description = $2 and amount_cents = $3
          limit 1`,
@@ -236,17 +237,20 @@ app.post("/transactions/bulk", async (req, res) => {
       const existing = existingRes.rows[0] || null;
 
       if (!existing) {
-        await client.query(
+        const insertRes = await client.query(
           `insert into transactions (client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source)
-           values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           values ($1, $2, $3, $4, $5, $6, $7, $8)
+           returning id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at, updated_at`,
           [clientTxId, txDate, description, amount, category, partnerSplitPct, statementMonthKey, source]
         );
         inserted += 1;
+        rows.push({ ...insertRes.rows[0], sync_state: "inserted" });
         continue;
       }
 
       if (!knownUpdatedAt) {
         staleSkipped += 1;
+        rows.push({ ...existing, sync_state: "stale" });
         continue;
       }
 
@@ -254,10 +258,11 @@ app.post("/transactions/bulk", async (req, res) => {
       const currentUpdatedTs = existing.updated_at instanceof Date ? existing.updated_at.getTime() : new Date(existing.updated_at).getTime();
       if (!Number.isFinite(knownUpdatedTs) || !Number.isFinite(currentUpdatedTs) || knownUpdatedTs < currentUpdatedTs) {
         staleSkipped += 1;
+        rows.push({ ...existing, sync_state: "stale" });
         continue;
       }
 
-      await client.query(
+      const updateRes = await client.query(
         `update transactions
          set client_tx_id = coalesce(transactions.client_tx_id, $2),
              category = $3,
@@ -265,14 +270,16 @@ app.post("/transactions/bulk", async (req, res) => {
              statement_month_key = $5,
              source = $6,
              updated_at = now()
-         where id = $1`,
+         where id = $1
+         returning id, client_tx_id, tx_date, description, amount_cents, category, partner_split_pct, statement_month_key, source, created_at, updated_at`,
         [existing.id, clientTxId, category, partnerSplitPct, statementMonthKey, source]
       );
       updated += 1;
+      rows.push({ ...updateRes.rows[0], sync_state: "updated" });
     }
 
     await client.query("commit");
-    return res.status(201).json({ inserted, updated, stale_skipped: staleSkipped });
+    return res.status(201).json({ inserted, updated, stale_skipped: staleSkipped, rows });
   } catch (error) {
     await client.query("rollback");
     return res.status(500).json({ error: String(error.message || error) });
