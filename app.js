@@ -29,6 +29,7 @@ const CATEGORY_OPTIONS = [
   "ElevenLabs",
   "Claude",
   "OpenAI",
+  "Accountant",
   "Foreign Currency",
   "Google",
   "Misc Debit"
