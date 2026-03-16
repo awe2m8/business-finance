@@ -31,6 +31,7 @@ const CATEGORY_OPTIONS = [
   "ElevenLabs",
   "Claude",
   "OpenAI",
+  "Open Router",
   "Accountant",
   "Foreign Currency",
   "Google",
@@ -40,6 +41,8 @@ const CREDIT_CATEGORIES = new Set(["Credit", "Giles Credit", "Misc Credit"]);
 const CATEGORY_ALIASES = {
   "credit giles": "Giles Credit",
   "giles credit": "Giles Credit",
+  "open router": "Open Router",
+  openrouter: "Open Router",
   thinker: "Thinkrr",
   misc: "Misc Debit",
   miscellaneous: "Misc Debit"
@@ -59,6 +62,8 @@ const CATEGORY_RULES = [
   { keyword: "claude", category: "Claude" },
   { keyword: "anthropic", category: "Claude" },
   { keyword: "openai", category: "OpenAI" },
+  { keyword: "open router", category: "Open Router" },
+  { keyword: "openrouter", category: "Open Router" },
   { keyword: "chatgpt", category: "OpenAI" },
   { keyword: "foreign currency", category: "Foreign Currency" },
   { keyword: "foreign exchange", category: "Foreign Currency" },
